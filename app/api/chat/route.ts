@@ -1,7 +1,6 @@
 import { auth } from "@clerk/nextjs/server"
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import Anthropic from "@anthropic-ai/sdk"
-import OpenAI from "openai"
 import { db } from "@/config/db"
 import { projects, messages, files, artifacts } from "@/config/schema"
 import { eq, asc } from "drizzle-orm"
@@ -345,9 +344,16 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
     return createErrorStream("OpenAI API key not configured. Please add OPENAI_API_KEY to your environment variables.")
   }
 
+  let openai: any;
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    const OpenAI = (await import('openai')).default;
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  } catch (e) {
+    console.error("[API/Chat] OpenAI SDK load error:", e);
+    return createErrorStream(`Failed to load OpenAI SDK: ${e}`);
+  }
 
+  try {
     const searchQuery = message
     const searchResult = await doSearch(searchQuery)
     const searchQueries: Array<{ query: string; results: string }> = [searchResult]
@@ -391,7 +397,7 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
             }
           }
 
-          await saveAssistantMessage(projectId, fullResponse, searchQueries, thinkingContent, controller, encoder)
+          await saveAssistantMessage(projectId, fullResponse, searchQueries, thinkingContent, controller, encoder, undefined, false)
         } catch (error) {
           console.error("[API/Chat] GPT stream error:", error)
           controller.error(error)
