@@ -6,6 +6,14 @@ export const projects = pgTable("projects", {
   title: text("title").notNull(),
   isGithubClone: boolean("is_github_clone").default(false).notNull(),
   githubUrl: text("github_url"),
+  deploymentConfig: jsonb("deployment_config")
+    .$type<{
+      platform?: "vercel" | "netlify"
+      apiKey?: string
+      deploymentUrl?: string
+      lastDeployedAt?: string
+    } | null>()
+    .default(null), // Explicit default for new projects; ensures safe saving of deployment URL on publish
   sandboxId: text("sandbox_id"),
   selectedModel: text("selected_model").default("gemini").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -76,6 +84,7 @@ export const userCredits = pgTable("user_credits", {
   lastRegenTime: timestamp("last_regen_time").defaultNow().notNull(), // Timestamp for last regeneration
   lastClaimedGiftId: uuid("last_claimed_gift_id").references(() => giftEvents.id),
   lastMonthlyClaim: timestamp("last_monthly_claim"),
+  isPremium: boolean("is_premium").default(false).notNull(), // New: Tracks premium subscription status
 })
 
 export type Project = typeof projects.$inferSelect

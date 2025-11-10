@@ -142,7 +142,7 @@ export function MessageList({ messages, onArtifactClick }: MessageListProps) {
             <div
               className={cn(
                 "max-w-[100%] rounded-lg px-4 py-3",
-                message.role === "user" ? "bg-[#1E1E21] text-white/75" : "text-[16px] text-white",
+                message.role === "user" ? "bg-[#1E1E21] text-[15px] text-white/75" : "text-[15px] text-white",
               )}
             >
               {message.role === "user" ? (
@@ -186,7 +186,7 @@ export function MessageList({ messages, onArtifactClick }: MessageListProps) {
                 <div className="space-y-3">
                   {/* Buttons for process steps, shown before main content; persist if data exists */}
                   {displayThinking && (
-                    <div className="bg-none rounded p-3">
+                    <div className="bg-none rounded">
                       <button
                         onClick={() => setExpandedThinking(isThinkingExpanded ? null : message.id)}
                         className="flex items-center gap-2 text-sm font-medium text-white/75 hover:text-white transition-colors w-full text-left"
@@ -207,7 +207,7 @@ export function MessageList({ messages, onArtifactClick }: MessageListProps) {
                   )}
 
                   {displaySearches.length > 0 && (
-                    <div className="bg-none rounded p-3">
+                    <div className="bg-none rounded">
                       <button
                         onClick={() => setExpandedSearch(isSearchExpanded ? null : message.id)}
                         className="flex items-center gap-2 text-sm font-medium text-white/75 hover:text-white transition-colors w-full text-left"

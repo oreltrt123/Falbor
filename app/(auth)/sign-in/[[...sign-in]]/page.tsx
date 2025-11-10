@@ -4,6 +4,7 @@ import { useSignIn } from "@clerk/nextjs"
 import type { OAuthStrategy } from "@clerk/types"
 import Link from "next/link"
 import RotatingEarth from "@/components/ui/dotted-globe";
+import FeatureShowcase from '@/components/auth/FeatureShowcase'
 
 export default function Page() {
   const { signIn, isLoaded, setActive } = useSignIn()
@@ -77,10 +78,10 @@ export default function Page() {
   }
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center p-4 bg-[#161616] overflow-x-hidden overflow-y-hidden">
+    <div className="relative min-h-screen flex items-center justify-center p-4 bg-[#161616] overflow-x-hidden md:overflow-y-hidden">
       {/* Login Form */}
-      <div className="w-full max-w-xs rounded-xl p-6 bg-transparent -translate-x-16 mr-40">
-        <h1 className="text-2xl font-light text-center text-white">Welcome to Falbor</h1>
+      <div className="w-full max-w-xs rounded-xl p-6 bg-transparent md:-translate-x-16 md:mr-40">
+        <h1 className="text-2xl font-light text-center text-white mr-30">Welcome to <img src="/logo.png" width={100} className="absolute mt-[-64px] ml-36" alt="" /></h1>
         <h1 className="text-2xl font-light text-center mb-4 text-[#939494]">Start building now</h1>
 
         <form onSubmit={handleLogin} className="flex flex-col gap-2">
@@ -128,10 +129,10 @@ export default function Page() {
         </p>
       </div>
 
-      {/* Globe on the right side */}
-      <div className="absolute inset-y-0 right-0 z-0 flex items-center pr-4">
-        <div className="relative left-120 top-[130px] w-[600px] h-[600px] sm:w-[700px] sm:h-[700px] md:w-[800px] md:h-[800px] lg:w-[900px] lg:h-[900px]">
-          <RotatingEarth className="absolute inset-0 w-full h-full opacity-80" />
+      {/* Globe on the right side - hidden on mobile */}
+      <div className="hidden md:block absolute inset-y-0 right-0 z-0 flex items-center pr-4">
+        <div className="relative left-[120px] top-[130px] w-[600px] h-[600px] sm:w-[700px] sm:h-[700px] md:w-[800px] md:h-[800px] lg:w-[900px] lg:h-[900px]">
+          <FeatureShowcase />
         </div>
       </div>
     </div>

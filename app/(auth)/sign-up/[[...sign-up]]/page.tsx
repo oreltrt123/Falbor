@@ -221,7 +221,7 @@ export default function Page() {
 
   const renderForm = () => (
     <form onSubmit={handleSignUp} className="flex flex-col gap-2">
-      <div className="flex flex-row gap-2">
+      <div className="flex flex-col md:flex-row gap-2">
         <input
           type="text"
           placeholder="First Name"
@@ -335,7 +335,7 @@ export default function Page() {
   return (
     <div className="relative min-h-screen flex items-center justify-center p-4 bg-[#161616] overflow-x-hidden">
       {/* Sign Up Form */}
-      <div className="w-full max-w-xs rounded-xl p-6 bg-transparent -translate-x-16 mr-40">
+      <div className="w-full max-w-xs rounded-xl p-6 bg-transparent md:-translate-x-16 md:mr-40">
         <h1 className="text-2xl font-light text-center text-white">
           {step === 'form' ? 'Create your account' : step === 'missing' ? 'Complete profile' : 'Verify email'}
         </h1>
@@ -381,9 +381,9 @@ export default function Page() {
         )}
       </div>
 
-      {/* Globe on the right side */}
-      <div className="absolute inset-y-0 right-0 z-0 flex items-center pr-4">
-        <div className="relative left-120 w-[600px] h-[600px] sm:w-[700px] sm:h-[700px] md:w-[800px] md:h-[800px] lg:w-[900px] lg:h-[900px]">
+      {/* Globe on the right side - hidden on mobile */}
+      <div className="hidden md:block absolute inset-y-0 right-0 z-0 flex items-center pr-4">
+        <div className="relative left-[120px] w-[600px] h-[600px] sm:w-[700px] sm:h-[700px] md:w-[800px] md:h-[800px] lg:w-[900px] lg:h-[900px]">
           <Globe className="absolute inset-0 w-full h-full opacity-80" />
         </div>
       </div>

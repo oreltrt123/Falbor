@@ -29,21 +29,16 @@ export function Navbar() {
   }, [open])
 
   return (
-    <nav className="border-[#1b1b1b79] bg-[#1b1b1b79] border-b z-50 fixed w-full">
-      <div className="container mx-auto flex h-16 items-center justify-between px-4">
-        <Link href="/" className="text-xl font-sans font-light text-white">
+    <nav className="border-[#4444442d] bg-[#1b1b1b] border-b z-50 fixed w-full">
+      <div className="container mx-auto flex h-16 items-center justify-between">
+        <Link href="/" className="text-xl font-sans font-light text-white absolute left-3">
           <img width={140} className="relative top-[-1px]" src="/logo.png" alt="" />
         </Link>
         <div className="flex flex-1 ml-10">
-        {user && (
-          <Link href={'/projects'} className="text-white hover:text-[#f0f0f0]">
-            Projects
-          </Link>
-        )}
         </div>
         <div className="flex items-center gap-4">
           {user ? (
-            <div className="relative">
+            <div className="absolute right-8">
               {/* Profile button */}
               <button
                 onClick={() => setOpen(!open)}

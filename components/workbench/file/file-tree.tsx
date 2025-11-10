@@ -126,8 +126,8 @@ function TreeNode({
     <div>
       <div
         className={cn(
-          "flex items-center gap-1 px-2 py-1 hover:bg-[#5f5f6457] cursor-pointer text-sm relative group",
-          selectedPath === node.path && "bg-[#5f5f6457]",
+          "flex items-center gap-1 px-2 py-1 hover:bg-[#2e2e2e38] cursor-pointer text-sm relative group",
+          selectedPath === node.path && "bg-[#122a3a38] hover:bg-[#122a3a38]",
           node.isLocked && "opacity-50",
         )}
         style={{ paddingLeft: `${level * 12 + 8}px` }}

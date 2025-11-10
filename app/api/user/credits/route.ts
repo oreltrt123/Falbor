@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic'
 const REGEN_INTERVAL_MINUTES = 400 // How much time the user need to wait
 const CREDITS_PER_INTERVAL = 3 // How much credits the user need to get
 const INTERVAL_MS = REGEN_INTERVAL_MINUTES * 60 * 1000 // 60000 ms for 1 min
+const UNLIMITED_CREDITS = 9999 // High number for premium display
 
 // Helper to check if a month has passed since last monthly claim
 function isMonthPassed(lastClaim: Date | null): boolean {
@@ -22,8 +23,17 @@ function isMonthPassed(lastClaim: Date | null): boolean {
   return today >= nextMonth
 }
 
-// Helper to calculate and apply regeneration without resetting timer
-async function applyRegeneration(userId: string) {
+// Helper to calculate and apply regeneration without resetting timer (only for non-premium)
+async function applyRegeneration(userId: string, isPremium: boolean) {
+  if (isPremium) {
+    return { 
+      credits: UNLIMITED_CREDITS, 
+      secondsUntilNextRegen: 0,
+      record: { isPremium: true },
+      pendingMonthly: 0
+    }
+  }
+
   let record = await db
     .select()
     .from(userCredits)
@@ -37,8 +47,9 @@ async function applyRegeneration(userId: string) {
       credits: 10,
       lastRegenTime: new Date(),
       lastMonthlyClaim: null,
+      isPremium: false,
     })
-    record = { credits: 10, lastRegenTime: new Date(), lastMonthlyClaim: null }
+    record = { credits: 10, lastRegenTime: new Date(), lastMonthlyClaim: null, isPremium: false }
   }
 
   const nowMs = Date.now()
@@ -130,14 +141,32 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const data = await applyRegeneration(userId)
-  const pendingGift = await calculatePendingGift(data.record)
+  let record = await db
+    .select()
+    .from(userCredits)
+    .where(eq(userCredits.userId, userId))
+    .then(r => r[0])
+
+  if (!record) {
+    await db.insert(userCredits).values({
+      userId,
+      credits: 10,
+      lastRegenTime: new Date(),
+      lastMonthlyClaim: null,
+      isPremium: false,
+    })
+    record = { credits: 10, lastRegenTime: new Date(), lastMonthlyClaim: null, isPremium: false }
+  }
+
+  const data = await applyRegeneration(userId, record.isPremium)
+  const pendingGift = record.isPremium ? 0 : await calculatePendingGift(record) // No gifts for premium
 
   return NextResponse.json({
     credits: data.credits,
     pendingGift,
     pendingMonthly: data.pendingMonthly,
     secondsUntilNextRegen: data.secondsUntilNextRegen,
+    isPremium: record.isPremium, // New: Return status
   })
 }
 
@@ -147,12 +176,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  let record = await db
+    .select()
+    .from(userCredits)
+    .where(eq(userCredits.userId, userId))
+    .then(r => r[0])
+
+  if (!record) {
+    await db.insert(userCredits).values({
+      userId,
+      credits: 10,
+      lastRegenTime: new Date(),
+      lastMonthlyClaim: null,
+      isPremium: false,
+    })
+    record = { credits: 10, lastRegenTime: new Date(), lastMonthlyClaim: null, isPremium: false }
+  }
+
+  if (record.isPremium) {
+    // Premium: No deduction needed, always success
+    return NextResponse.json({ success: true })
+  }
+
   let body: any = null
   try {
     body = await request.json()
   } catch {}
 
-  // Handle adding a new gift (admin action)
+  // Handle adding a new gift (admin action) - only non-premium
   if (body?.addGift !== undefined && typeof body.addGift === 'number' && body.addGift > 0) {
     await db.insert(giftEvents).values({
       amount: body.addGift
@@ -160,9 +211,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, message: 'Gift event added successfully' })
   }
 
-  // Handle claiming gift
+  // Handle claiming gift - only non-premium
   if (body?.claimGift === true) {
-    const data = await applyRegeneration(userId)
+    const data = await applyRegeneration(userId, false)
     const userRecord = data.record
     const pendingGift = await calculatePendingGift(userRecord)
 
@@ -199,9 +250,9 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  // Handle claiming monthly credits
+  // Handle claiming monthly credits - only non-premium
   if (body?.claimMonthly === true) {
-    const data = await applyRegeneration(userId)
+    const data = await applyRegeneration(userId, false)
     const userRecord = data.record
     const isAvailable = isMonthPassed(userRecord.lastMonthlyClaim)
 
@@ -226,8 +277,8 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  // Default: deduct credit for message send
-  const data = await applyRegeneration(userId)
+  // Default: deduct credit for message send - only non-premium
+  const data = await applyRegeneration(userId, false)
 
   if (data.credits <= 0) {
     return NextResponse.json({ error: 'Insufficient credits' }, { status: 402 })

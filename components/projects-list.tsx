@@ -28,13 +28,14 @@ export async function ProjectsList({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 p-10">
       {projects.map((project) => (
         <Link key={project.id} href={`/chat/${project.id}`}>
           <Card 
-          className="transition-colors cursor-pointer 
-          shadow-none h-full bg-[#1b1b1bc4]
-          hover:bg-[#1b1b1b] border-none">
+            className="transition-colors duration-200 cursor-pointer 
+            shadow-none h-full bg-[#1b1b1b]
+            border border-transparent 
+            hover:border-[#3b3b3fbe] hover:bg-[#1b1b1b]">
             <CardHeader>
               <CardTitle className="text-lg text-white font-sans font-light">{project.title}</CardTitle>
             </CardHeader>

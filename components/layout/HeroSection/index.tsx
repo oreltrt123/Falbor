@@ -1,4 +1,5 @@
 import React from "react";
+import "@/styles/endpoint.scss"
 
 interface Card {
   title: string;
@@ -31,9 +32,11 @@ export default function EuroSection() {
     <div className="bg-[#161616] text-white flex flex-col items-center justify-center px-4 py-12">
       {/* Top glowing icon */}
       <div className="mb-6">
-        <div className="w-6 h-6 bg-blue-500 rounded-full animate-pulse"></div>
+        <button className="button" type="button">
+          <span className="print print--under">
+          </span>
+        </button>
       </div>
-
       {/* Main heading */}
       <h1 className="text-4xl md:text-5xl font-bold text-center mb-4">
         Enabling developers to build <br />

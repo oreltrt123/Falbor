@@ -1,24 +1,18 @@
+// components/workbench/code-preview.tsx
+// ... (keep the rest the same, but remove the useEffect for addCommand since we're relying on the document listener)
+
 "use client"
 
 import { cn } from "@/lib/utils"
-
-import { useEffect, useState } from "react"
-import { Loader2, Globe, Code2, Search, Files } from "lucide-react"
+import { useEffect, useState, useRef, useMemo } from "react"
+import { Loader2 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { FileTree } from "@/components/workbench/file/file-tree"
-import { Input } from "@/components/ui/input"
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
+import { MainHeader } from "./main-header"
+import { CodeTab } from "./code-tab"
+import { PreviewTab } from "./preview-tab"
 
 interface CodePreviewProps {
   projectId: string
-}
-
-interface SearchResult {
-  path: string
-  line: number
-  content: string
-  matches: { start: number; end: number }[]
 }
 
 export function CodePreview({ projectId }: CodePreviewProps) {
@@ -28,36 +22,81 @@ export function CodePreview({ projectId }: CodePreviewProps) {
     Array<{ path: string; content: string; language: string; type?: string; isLocked?: boolean }>
   >([])
   const [selectedFile, setSelectedFile] = useState<{ path: string; content: string; language: string } | null>(null)
+  const [editedContent, setEditedContent] = useState("")
+  const [isEditorFocused, setIsEditorFocused] = useState(false)
   const [sidebarView, setSidebarView] = useState<"files" | "search">("files")
   const [searchQuery, setSearchQuery] = useState("")
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchResults, setSearchResults] = useState<any[]>([])
   const [isSearching, setIsSearching] = useState(false)
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false)
+
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const previousScrollTop = useRef(0)
+  const monacoRef = useRef<any>(null)
 
   const fetchFiles = async () => {
     try {
       const filesResponse = await fetch(`/api/projects/${projectId}/files`)
+      if (!filesResponse.ok) {
+        throw new Error(`HTTP error! status: ${filesResponse.status}`)
+      }
       const filesData = await filesResponse.json()
-      setFiles(filesData.files || [])
+      const newFiles = filesData.files || []
 
-      if (filesData.files && filesData.files.length > 0) {
-        const latestFile = filesData.files[filesData.files.length - 1]
+      if (scrollRef.current) {
+        previousScrollTop.current = scrollRef.current.scrollTop
+      }
 
-        // Only auto-switch if we're not already viewing a specific file the user selected
+      setFiles(newFiles)
+
+      if (newFiles.length > 0) {
+        const latestFile = newFiles[newFiles.length - 1]
+
         setSelectedFile((prev) => {
           if (!prev) return latestFile
 
-          // Find if current file still exists
-          const stillExists = filesData.files.find((f: any) => f.path === prev.path)
+          const stillExists = newFiles.find((f: any) => f.path === prev.path)
           if (!stillExists) return latestFile
 
-          // Update content if file was modified
-          const updated = filesData.files.find((f: any) => f.path === prev.path)
+          const updated = newFiles.find((f: any) => f.path === prev.path)
           return updated || prev
         })
       }
     } catch (error) {
       console.error("[v0] Failed to fetch files:", error)
     }
+  }
+
+  const handleSave = async () => {
+    if (!selectedFile || editedContent === selectedFile.content) return
+
+    try {
+      await fetch(`/api/projects/${projectId}/files/${encodeURIComponent(selectedFile.path)}`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: editedContent }),
+      })
+      await fetchFiles()
+    } catch (error) {
+      console.error("[v0] Failed to save file:", error)
+    }
+  }
+
+  const handleDownload = async () => {
+    // Import dynamically to avoid bundling if not needed
+    const JSZip = (await import('jszip')).default
+    const zip = new JSZip()
+    files.forEach((file) => {
+      zip.file(file.path, file.content)
+    })
+    const content = await zip.generateAsync({ type: 'blob' })
+    const url = URL.createObjectURL(content)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${projectId}.zip`
+    a.click()
+    URL.revokeObjectURL(url)
+    setShowDownloadMenu(false)
   }
 
   useEffect(() => {
@@ -69,12 +108,17 @@ export function CodePreview({ projectId }: CodePreviewProps) {
           body: JSON.stringify({ projectId }),
         })
 
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
         const data = await response.json()
         setPreviewUrl(data.previewUrl)
 
         await fetchFiles()
       } catch (error) {
         console.error("[v0] Failed to create preview:", error)
+        await fetchFiles()
       } finally {
         setLoading(false)
       }
@@ -84,10 +128,38 @@ export function CodePreview({ projectId }: CodePreviewProps) {
 
     const pollInterval = setInterval(() => {
       fetchFiles()
-    }, 500)
+    }, 2000)
 
     return () => clearInterval(pollInterval)
   }, [projectId])
+
+  useEffect(() => {
+    if (selectedFile) {
+      setEditedContent(selectedFile.content)
+    }
+  }, [selectedFile?.path, selectedFile?.content])
+
+  useEffect(() => {
+    if (scrollRef.current && previousScrollTop.current > 0) {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo(0, previousScrollTop.current)
+      })
+    }
+  }, [files, selectedFile])
+
+  // Fallback document listener for Ctrl+S (with capture to prevent browser default)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 's' && isEditorFocused) {
+        e.preventDefault()
+        e.stopPropagation()
+        handleSave()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true) // Use capture phase
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [isEditorFocused, handleSave])
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
@@ -98,6 +170,9 @@ export function CodePreview({ projectId }: CodePreviewProps) {
     setIsSearching(true)
     try {
       const response = await fetch(`/api/projects/${projectId}/search?q=${encodeURIComponent(searchQuery)}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
       const data = await response.json()
       setSearchResults(data.results || [])
     } catch (error) {
@@ -139,180 +214,56 @@ export function CodePreview({ projectId }: CodePreviewProps) {
     return parts
   }
 
+  const isDirty = selectedFile && editedContent !== selectedFile.content
+
+  const editorOptions = useMemo(() => ({
+    wordWrap: 'on',
+    fontSize: 13,
+    fontFamily: 'Monaco, \'Cascadia Code\', monospace',
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    automaticLayout: true,
+  }), [])
+
   return (
-    <div className="h-full flex flex-col border-l border-[#3b3b3f] rounded-l-2xl bg-[#212122]">
-      <Tabs defaultValue="code" className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {previewUrl && (
-              <a
-                href={previewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-blue-500 hover:underline"
-              >
-                <img width={13} height={13} className="mr-1" src="/window.png" alt="" />
-                {previewUrl}
-              </a>
-            )}
-          </div>
-          <TabsList className="w-[10%] justify-start">
-            <TabsTrigger value="preview" className="gap-2">
-              <Globe className="w-4 h-4" />
-            </TabsTrigger>
-            <TabsTrigger value="code" className="gap-2">
-              <Code2 className="w-4 h-4" />
-            </TabsTrigger>
-          </TabsList>
-        </div>
+<div className="h-full flex flex-col border border-[#4444442d] rounded-2xl bg-[#1b1b1b] relative overflow-hidden">
+  {/* Optional subtle left shadow to indicate draggable border */}
+  <div className="absolute left-0 top-0 h-full w-1 bg-gray-500 opacity-0 hover:opacity-30 pointer-events-none rounded-l"></div>
 
-        {/* PREVIEW TAB */}
-        <TabsContent value="preview" className="flex-1 m-0">
-          {loading ? (
-            <div className="h-full flex items-center justify-center">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-sm text-muted-foreground">Setting up preview...</span>
-            </div>
-          ) : previewUrl ? (
-            <iframe src={previewUrl} className="w-full h-full border-0" title="Live Preview" />
-          ) : (
-            <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-              Failed to load preview
-            </div>
-          )}
-        </TabsContent>
+  <Tabs defaultValue="code" className="flex-1 flex flex-col overflow-hidden">
+    <MainHeader
+      previewUrl={previewUrl}
+      showDownloadMenu={showDownloadMenu}
+      setShowDownloadMenu={setShowDownloadMenu}
+      handleDownload={handleDownload}
+    />
+    <PreviewTab loading={loading} previewUrl={previewUrl} />
+    <CodeTab
+      sidebarView={sidebarView}
+      setSidebarView={setSidebarView}
+      files={files}
+      selectedFile={selectedFile}
+      setSelectedFile={setSelectedFile}
+      editedContent={editedContent}
+      setEditedContent={setEditedContent}
+      isEditorFocused={isEditorFocused}
+      setIsEditorFocused={setIsEditorFocused}
+      searchQuery={searchQuery}
+      setSearchQuery={setSearchQuery}
+      searchResults={searchResults}
+      isSearching={isSearching}
+      highlightMatch={highlightMatch}
+      isDirty={isDirty}
+      handleSave={handleSave}
+      projectId={projectId}
+      fetchFiles={fetchFiles}
+      scrollRef={scrollRef}
+      monacoRef={monacoRef}
+      editorOptions={editorOptions}
+      loading={loading}
+    />
+  </Tabs>
+</div>
 
-        {/* CODE TAB */}
-        <TabsContent value="code" className="flex-1 m-0 flex overflow-hidden border-t border-[#3b3b3f] mt-[-5px]">
-          <div className="w-64 border-r border-[#3b3b3f] overflow-y-auto bg-[#212122] flex flex-col">
-            {/* Sidebar Tab Selector */}
-            <div className="flex border-b border-[#3b3b3f] bg-[#1a1a1a]">
-              <button
-                onClick={() => setSidebarView("files")}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium transition-colors",
-                  sidebarView === "files" ? "text-white bg-[#212122]" : "text-white/50 hover:text-white/75",
-                )}
-              >
-                <Files className="w-4 h-4" />
-                Files
-              </button>
-              <button
-                onClick={() => setSidebarView("search")}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium transition-colors",
-                  sidebarView === "search" ? "text-white bg-[#212122]" : "text-white/50 hover:text-white/75",
-                )}
-              >
-                <Search className="w-4 h-4" />
-                Search
-              </button>
-            </div>
-
-            {/* Files View */}
-            {sidebarView === "files" && (
-              <>
-                <div className="p-2 border-b bg-[#212122] border-[#3b3b3f]">
-                  <p className="text-xs font-medium text-white">FILES ({files.length})</p>
-                </div>
-                <FileTree
-                  files={files}
-                  onFileSelect={(file) => {
-                    console.log("[v0] User selected file:", file.path)
-                    setSelectedFile(file)
-                  }}
-                  selectedPath={selectedFile?.path}
-                  projectId={projectId}
-                  onFilesChange={fetchFiles}
-                />
-              </>
-            )}
-
-            {/* Search View */}
-            {sidebarView === "search" && (
-              <div className="flex flex-col h-full">
-                <div className="p-3 border-b border-[#3b3b3f]">
-                  <Input
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search files and code..."
-                    className="w-full bg-[#1a1a1a] border-[#3b3b3f] text-white text-sm"
-                  />
-                </div>
-
-                <div className="flex-1 overflow-y-auto">
-                  {isSearching ? (
-                    <div className="flex items-center justify-center p-4">
-                      <Loader2 className="w-5 h-5 animate-spin text-white/50" />
-                    </div>
-                  ) : searchResults.length > 0 ? (
-                    <div className="p-2">
-                      <p className="text-xs text-white/50 mb-2">{searchResults.length} results</p>
-                      {searchResults.map((result, idx) => (
-                        <div
-                          key={idx}
-                          onClick={() => {
-                            const file = files.find((f) => f.path === result.path)
-                            if (file) setSelectedFile(file)
-                          }}
-                          className="mb-3 p-2 hover:bg-[#3b3b3f] cursor-pointer rounded text-xs"
-                        >
-                          <div className="text-blue-400 font-mono mb-1">{result.path}</div>
-                          <div className="text-white/60 mb-1">Line {result.line}</div>
-                          <pre className="text-white/80 overflow-x-auto whitespace-pre-wrap break-words">
-                            {highlightMatch(result.content, result.matches)}
-                          </pre>
-                        </div>
-                      ))}
-                    </div>
-                  ) : searchQuery ? (
-                    <div className="p-4 text-center text-white/50 text-sm">No results found</div>
-                  ) : (
-                    <div className="p-4 text-center text-white/50 text-sm">Start typing to search</div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Code pane */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {selectedFile ? (
-              <>
-                <div className="p-2 border-b border-[#3b3b3f] bg-[#212122]">
-                  <p className="text-xs text-white font-mono">{selectedFile.path}</p>
-                </div>
-
-                <div className="flex-1 overflow-y-scroll chat-messages-scroll">
-                  <SyntaxHighlighter
-                    language={selectedFile.language}
-                    style={vscDarkPlus}
-                    customStyle={{
-                      margin: 0,
-                      borderRadius: 0,
-                      height: "100%",
-                      minHeight: "100%",
-                      display: "block",
-                    }}
-                    PreTag="div"
-                    codeTagProps={{ style: { height: "100%" } }}
-                  >
-                    {selectedFile.content}
-                  </SyntaxHighlighter>
-                </div>
-              </>
-            ) : (
-              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                {loading
-                  ? "Loading files..."
-                  : files.length === 0
-                    ? "No files yet - Start coding!"
-                    : "Select a file to view"}
-              </div>
-            )}
-          </div>
-        </TabsContent>
-      </Tabs>
-    </div>
   )
 }

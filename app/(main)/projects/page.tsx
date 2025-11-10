@@ -8,10 +8,10 @@ export async function page() {
   return (
     <div className="relative min-h-screen flex flex-col bg-[#161616] overflow-hidden">
       <Navbar />
-      <div className="p-10">
+      <div className="p-40">
         {userId && (
           <div className="relative z-10 px-4 pb-8">
-            <h2 className="text-2xl font-semibold text-white mb-4">Your Projects</h2>
+            <h2 className="text-2xl font-semibold text-white absolute ml-12 mt-[-10px]">Your Projects</h2>
             <ProjectsList userId={userId} />
           </div>
         )}

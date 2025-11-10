@@ -30,6 +30,12 @@ function Footer() {
         >
           Terms
         </Link>
+          <Link href={'https://discord.gg/FmPzZQm6'} className="opacity-30 hover:opacity-25">
+            <img className="absolute right-15 bottom-2.5" width={24} src="/icons/discord.png" alt="" />
+          </Link>
+          <Link href={'https://www.reddit.com/r/Falbor/?feed=home'} className="opacity-30 hover:opacity-25">
+            <img className="absolute right-5 bottom-[9px]" width={32} src="/icons/reddit.png" alt="" />
+          </Link>
       </div>
     </div>
   )

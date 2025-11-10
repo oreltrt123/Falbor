@@ -57,7 +57,7 @@ export async function POST(request: Request) {
 
   let history: any[]
   try {
-    history = await db.select().from(messages).where(eq(messages.projectId, projectId)).orderBy(asc(messages.createdAt))
+    history = await db.select().from(messages).where(eq(messages.projectId, projectId)).orderBy(asc(messages.createdAt)) ?? []
   } catch (e) {
     console.error("[API/Chat] History fetch error:", e)
     return new Response(JSON.stringify({ error: "Database error" }), { status: 500 })
@@ -206,47 +206,7 @@ async function handleGeminiRequest(
         for await (const chunk of result.stream) {
           const text = chunk.text()
           fullResponse += text
-
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
-
-          // Extract and save code blocks as they come in (live)
-          const codeBlocks = extractCodeBlocks(fullResponse)
-          if (codeBlocks.length > 0) {
-            console.log(`[v0] Detected ${codeBlocks.length} code blocks, saving to database...`)
-
-            // Save files immediately as they're detected
-            for (const block of codeBlocks) {
-              try {
-                const existingFiles = await db.select().from(files).where(eq(files.projectId, projectId))
-                const alreadySaved = existingFiles.find((f) => f.path === block.path && f.content === block.content)
-
-                if (!alreadySaved) {
-                  console.log(`[v0] Saving new file: ${block.path}`)
-
-                  const previousFile = existingFiles.find((f) => f.path === block.path)
-                  const previousContent = previousFile?.content ?? ""
-                  const previousLines = previousContent.split("\n").length
-                  const newLines = block.content.split("\n").length
-                  const additions = Math.max(0, newLines - previousLines)
-                  const deletions = Math.max(0, previousLines - newLines)
-
-                  await db.insert(files).values({
-                    projectId,
-                    messageId: null, // Will be updated when message is saved
-                    path: block.path,
-                    content: block.content,
-                    language: block.language,
-                    additions,
-                    deletions,
-                  })
-
-                  console.log(`[v0] File saved: ${block.path}`)
-                }
-              } catch (saveError) {
-                console.error(`[v0] Error saving file ${block.path}:`, saveError)
-              }
-            }
-          }
         }
 
         console.log("[v0] Stream complete, saving final message...")
@@ -271,6 +231,8 @@ async function handleGeminiRequest(
         } catch (e) {
           console.error("[v0] Error sending error message:", e)
         }
+      } finally {
+        console.log("[v0] Closing stream controller")
         controller.close()
       }
     },
@@ -279,14 +241,18 @@ async function handleGeminiRequest(
 
 async function handleClaudeRequest(history: any[], message: string, imageData: any, projectId: string, userId: string) {
   if (!process.env.ANTHROPIC_API_KEY) {
-    return createErrorStream(
-      "Claude API key not configured. Please add ANTHROPIC_API_KEY to your environment variables.",
-    )
+    return createErrorStream("Claude API key not configured. Please add ANTHROPIC_API_KEY to your environment variables.")
+  }
+
+  let anthropic: any
+  try {
+    anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  } catch (e) {
+    console.error("[API/Chat] Anthropic SDK init error:", e)
+    return createErrorStream(`Claude SDK failed: ${e}`)
   }
 
   try {
-    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
     const searchQuery = message
     const searchResult = await doSearch(searchQuery)
     const searchQueries: Array<{ query: string; results: string }> = [searchResult]
@@ -303,16 +269,8 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
     return new ReadableStream({
       async start(controller) {
         try {
-          const readUserStep = `<Thinking>Read user query: "${message}"</Thinking>\n`
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: readUserStep })}\n\n`))
-          fullResponse += readUserStep
-
-          const searchStep = `<search>Query: ${searchResult.query}\n${searchResult.results}</search>\n`
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: searchStep })}\n\n`))
-          fullResponse += searchStep
-
           const stream = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-20241022",
+            model: "claude-sonnet-4-5", // Updated to latest Claude Sonnet 4.5 (Sep 2025)
             max_tokens: 8192,
             system: SYSTEM_PROMPT + `\n\nContext from web search: ${searchResult.results}`,
             messages: [...conversationHistory, { role: "user", content: message }],
@@ -330,12 +288,15 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
           await saveAssistantMessage(projectId, fullResponse, searchQueries, thinkingContent, controller, encoder)
         } catch (error) {
           console.error("[API/Chat] Claude stream error:", error)
-          controller.error(error)
+          return createErrorStream(`Claude request failed: ${error}`)
+        } finally {
+          controller.close()
         }
       },
     })
   } catch (e) {
-    return createErrorStream(`Claude request failed: ${e}`)
+    console.error("[API/Chat] Claude handler error:", e)
+    return createErrorStream(`Claude handler failed: ${e}`)
   }
 }
 
@@ -370,16 +331,8 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
     return new ReadableStream({
       async start(controller) {
         try {
-          const readUserStep = `<Thinking>Read user query: "${message}"</Thinking>\n`
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: readUserStep })}\n\n`))
-          fullResponse += readUserStep
-
-          const searchStep = `<search>Query: ${searchResult.query}\n${searchResult.results}</search>\n`
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: searchStep })}\n\n`))
-          fullResponse += searchStep
-
           const stream = await openai.chat.completions.create({
-            model: "gpt-4-turbo-preview",
+            model: "gpt-5", // Updated to latest GPT-5 (Aug 2025); fallback to "gpt-4.1" if access denied
             messages: [
               { role: "system", content: SYSTEM_PROMPT + `\n\nContext from web search: ${searchResult.results}` },
               ...conversationHistory,
@@ -400,12 +353,15 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
           await saveAssistantMessage(projectId, fullResponse, searchQueries, thinkingContent, controller, encoder, undefined, false)
         } catch (error) {
           console.error("[API/Chat] GPT stream error:", error)
-          controller.error(error)
+          return createErrorStream(`GPT request failed: ${error}`)
+        } finally {
+          controller.close()
         }
       },
     })
   } catch (e) {
-    return createErrorStream(`GPT request failed: ${e}`)
+    console.error("[API/Chat] GPT handler error:", e)
+    return createErrorStream(`GPT handler failed: ${e}`)
   }
 }
 
@@ -461,16 +417,14 @@ async function saveAssistantMessage(
     console.log("[v0] Message inserted with ID:", newMessage.id)
 
     if (hasArtifact && codeBlocks.length > 0) {
+      const existingFiles = await db.select().from(files).where(eq(files.projectId, projectId))
       const fileIds: string[] = []
 
       console.log("[v0] Processing code blocks...")
       for (const block of codeBlocks) {
         console.log(`[v0] Inserting file: ${block.path}`)
 
-        const existingFiles = await db.select().from(files).where(eq(files.projectId, projectId))
-
         const previousFile = existingFiles.find((f) => f.path === block.path)
-
         const previousContent = previousFile?.content ?? ""
         const previousLines = previousContent.split("\n").length
         const newLines = block.content.split("\n").length
@@ -510,7 +464,6 @@ async function saveAssistantMessage(
     controller.enqueue(
       encoder.encode(`data: ${JSON.stringify({ done: true, messageId: newMessage.id, hasArtifact })}\n\n`),
     )
-    controller.close()
   } catch (e) {
     console.error("[v0] Save assistant error:", e)
     try {
@@ -519,6 +472,7 @@ async function saveAssistantMessage(
     } catch (sendError) {
       console.error("[v0] Error sending error message:", sendError)
     }
+  } finally {
     controller.close()
   }
 }
