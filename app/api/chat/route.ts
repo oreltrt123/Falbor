@@ -134,39 +134,20 @@ async function handleGeminiRequest(
     return createErrorStream("Gemini API key missing or invalid")
   }
 
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" })
+  // Updated to latest model (Oct 2025)
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" })
 
   const searchQuery = message
   const searchResult = await doSearch(searchQuery)
   const searchQueries: Array<{ query: string; results: string }> = [searchResult]
 
-  const conversationHistory = [
-    { role: "user", parts: [{ text: SYSTEM_PROMPT }] },
-    {
-      role: "model",
-      parts: [{ text: "Understood. I'll follow these guidelines when generating code and responses." }],
-    },
-    {
-      role: "user",
-      parts: [
-        {
-          text: `Context from web search on "${searchQuery}":\n${searchResult.results}\n\nIncorporate this information into your response. When generating code, use the format: \`\`\`language file="path/to/file.ext"\ncode here\n\`\`\``,
-        },
-      ],
-    },
-    {
-      role: "model",
-      parts: [
-        {
-          text: "Understood. I'll use the provided web search context and format code blocks properly with file paths.",
-        },
-      ],
-    },
-    ...history.slice(0, -1).map((msg) => ({
-      role: msg.role === "user" ? "user" : "model",
-      parts: [{ text: msg.content }],
-    })),
-  ]
+  // Unified search injection to system prompt for consistency
+  const systemWithSearch = `${SYSTEM_PROMPT}\n\nContext from web search on "${searchQuery}":\n${searchResult.results}\n\nIncorporate this information into your response. When generating code, use the format: \`\`\`language file="path/to/file.ext"\ncode here\n\`\`\``
+
+  const conversationHistory = history.slice(0, -1).map((msg) => ({
+    role: msg.role === "user" ? "user" : "model",
+    parts: [{ text: msg.content }],
+  }))
 
   const messageParts: any[] = [{ text: message }]
   if (imageData) {
@@ -180,6 +161,8 @@ async function handleGeminiRequest(
 
   const chat = model.startChat({
     history: conversationHistory,
+    // System prompt now includes search context
+    systemInstruction: systemWithSearch,
     generationConfig: {
       maxOutputTokens: 8192,
       temperature: 0.7,
@@ -259,8 +242,23 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role,
-      content: msg.content,
+      content: [{ type: "text", text: msg.content }],
     }))
+
+    // Build user content with image support
+    let userContent: any[] = [{ type: "text", text: message }]
+    if (imageData) {
+      userContent.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: imageData.mimeType,
+          data: imageData.data,
+        },
+      })
+    }
+
+    const systemWithSearch = `${SYSTEM_PROMPT}\n\nContext from web search: ${searchResult.results}`
 
     const encoder = new TextEncoder()
     let fullResponse = ""
@@ -270,10 +268,11 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
       async start(controller) {
         try {
           const stream = await anthropic.messages.create({
-            model: "claude-sonnet-4-5", // Updated to latest Claude Sonnet 4.5 (Sep 2025)
+            // Updated to latest model (Sep 2025)
+            model: "claude-4.5-sonnet",
             max_tokens: 8192,
-            system: SYSTEM_PROMPT + `\n\nContext from web search: ${searchResult.results}`,
-            messages: [...conversationHistory, { role: "user", content: message }],
+            system: systemWithSearch,
+            messages: [...conversationHistory, { role: "user", content: userContent }],
             stream: true,
           })
 
@@ -285,12 +284,15 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
             }
           }
 
-          await saveAssistantMessage(projectId, fullResponse, searchQueries, thinkingContent, controller, encoder)
+          // Explicit args for consistency
+          await saveAssistantMessage(projectId, fullResponse, searchQueries, thinkingContent, controller, encoder, undefined, false)
         } catch (error) {
           console.error("[API/Chat] Claude stream error:", error)
-          return createErrorStream(`Claude request failed: ${error}`)
-        } finally {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: `Claude request failed: ${error}` })}\n\n`))
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`))
           controller.close()
+        } finally {
+          if (!controller.closed) controller.close()
         }
       },
     })
@@ -324,19 +326,39 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
       content: msg.content,
     }))
 
+    // Build user messages with image support
+    let userMessages = { role: "user", content: message }
+    if (imageData) {
+      userMessages = {
+        role: "user",
+        content: [
+          { type: "text", text: message },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:${imageData.mimeType};base64,${imageData.data}`,
+            },
+          },
+        ],
+      }
+    }
+
+    const systemWithSearch = `${SYSTEM_PROMPT}\n\nContext from web search: ${searchResult.results}`
+
     const encoder = new TextEncoder()
     let fullResponse = ""
     const thinkingContent = ""
 
     return new ReadableStream({
       async start(controller) {
+        let currentModel = "gpt-5" // Latest (Aug 2025)
         try {
           const stream = await openai.chat.completions.create({
-            model: "gpt-5", // Updated to latest GPT-5 (Aug 2025); fallback to "gpt-4.1" if access denied
+            model: currentModel,
             messages: [
-              { role: "system", content: SYSTEM_PROMPT + `\n\nContext from web search: ${searchResult.results}` },
+              { role: "system", content: systemWithSearch },
               ...conversationHistory,
-              { role: "user", content: message },
+              userMessages,
             ],
             stream: true,
             max_tokens: 8192,
@@ -349,14 +371,38 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
             }
           }
+        } catch (error: any) {
+          // Fallback if GPT-5 access denied (e.g., beta/enterprise only)
+          if (error.message?.includes("model") && currentModel === "gpt-5") {
+            console.warn("[API/Chat] Falling back to gpt-4o due to access error")
+            currentModel = "gpt-4o"
+            const fallbackStream = await openai.chat.completions.create({
+              model: currentModel,
+              messages: [
+                { role: "system", content: systemWithSearch },
+                ...conversationHistory,
+                userMessages,
+              ],
+              stream: true,
+              max_tokens: 8192,
+            })
 
-          await saveAssistantMessage(projectId, fullResponse, searchQueries, thinkingContent, controller, encoder, undefined, false)
-        } catch (error) {
-          console.error("[API/Chat] GPT stream error:", error)
-          return createErrorStream(`GPT request failed: ${error}`)
-        } finally {
-          controller.close()
+            fullResponse = "" // Reset for fallback
+            for await (const chunk of fallbackStream) {
+              const text = chunk.choices[0]?.delta?.content || ""
+              if (text) {
+                fullResponse += text
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: `[Fallback to ${currentModel}]: ` + text })}\n\n`))
+              }
+            }
+          } else {
+            throw error
+          }
         }
+
+        await saveAssistantMessage(projectId, fullResponse, searchQueries, thinkingContent, controller, encoder, undefined, false)
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`))
+        controller.close()
       },
     })
   } catch (e) {
@@ -473,7 +519,7 @@ async function saveAssistantMessage(
       console.error("[v0] Error sending error message:", sendError)
     }
   } finally {
-    controller.close()
+    if (!controller.closed) controller.close()
   }
 }
 
