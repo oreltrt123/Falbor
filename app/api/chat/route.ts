@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     isNewProject = true
     const [newProject] = await db.insert(projects).values({
       userId,
-      name: message.length > 50 ? `${message.substring(0, 47)}...` : message,
+      title: message.length > 50 ? `${message.substring(0, 47)}...` : message,
       selectedModel: model,
     }).returning({ id: projects.id })
     projectId = newProject.id
