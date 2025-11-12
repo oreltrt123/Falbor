@@ -46,11 +46,7 @@ export async function POST(request: Request) {
       content: message,
     })
 
-    await db.insert(messages).values({
-      projectId: project.id,
-      role: "assistant",
-      content: "I've received your message and created a new project. How can I help you build this?",
-    })
+    // Removed hardcoded assistant message; let /api/chat generate the real AI response
 
     return NextResponse.json({ projectId: project.id })
   } catch (error) {

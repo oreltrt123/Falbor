@@ -1,10 +1,14 @@
+// app/api/chat/route.ts (or wherever the POST handler is defined)
 import { auth } from "@clerk/nextjs/server"
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import Anthropic from "@anthropic-ai/sdk"
 import { db } from "@/config/db"
 import { projects, messages, files, artifacts } from "@/config/schema"
 import { eq, asc } from "drizzle-orm"
-import { SYSTEM_PROMPT } from "@/lib/prompt"
+import { SYSTEM_PROMPT } from "@/lib/common/prompts/prompt"
+import { DISCUSS_SYSTEM_PROMPT } from "@/lib/common/prompts/discuss-prompt"
+
+const UI_KEYWORDS = ['ui', 'component', 'design', 'website', 'app', 'interface', 'build site', 'frontend', 'react component', 'todo', 'dashboard', 'form', 'crud'] // Broadened for better triggering
 
 export async function POST(request: Request) {
   const { userId } = await auth()
@@ -20,10 +24,30 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400 })
   }
 
-  const { projectId, message, imageData, uploadedFiles, model = "gemini", generateImages } = body
+  const { projectId: incomingProjectId, message, imageData, uploadedFiles, model = "gemini", generateImages, discussMode = false } = body
 
-  if (!projectId || !message) {
-    return new Response(JSON.stringify({ error: "Missing projectId or message" }), { status: 400 })
+  if (!message) {
+    return new Response(JSON.stringify({ error: "Missing message" }), { status: 400 })
+  }
+
+  let projectId = incomingProjectId
+  let isNewProject = false
+
+  if (!projectId) {
+    isNewProject = true
+    const [newProject] = await db.insert(projects).values({
+      userId,
+      name: message.length > 50 ? `${message.substring(0, 47)}...` : message,
+      selectedModel: model,
+    }).returning({ id: projects.id })
+    projectId = newProject.id
+
+    // Insert user message for new project
+    await db.insert(messages).values({
+      projectId,
+      role: "user",
+      content: message,
+    })
   }
 
   let project: any
@@ -38,21 +62,24 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 })
   }
 
+  // If not a new project, insert the user message
+  if (!isNewProject) {
+    try {
+      await db.insert(messages).values({
+        projectId,
+        role: "user",
+        content: message,
+      })
+    } catch (e) {
+      console.error("[API/Chat] User insert error:", e)
+      return new Response(JSON.stringify({ error: "Failed to save message" }), { status: 500 })
+    }
+  }
+
   try {
     await db.update(projects).set({ selectedModel: model }).where(eq(projects.id, projectId))
   } catch (e) {
     console.error("[API/Chat] Model update error:", e)
-  }
-
-  try {
-    await db.insert(messages).values({
-      projectId,
-      role: "user",
-      content: message,
-    })
-  } catch (e) {
-    console.error("[API/Chat] User insert error:", e)
-    return new Response(JSON.stringify({ error: "Failed to save message" }), { status: 500 })
   }
 
   let history: any[]
@@ -74,13 +101,14 @@ export async function POST(request: Request) {
       generateImages,
       projectId,
       userId,
+      discussMode,
     )
   } else if (model === "claude") {
-    responseStream = await handleClaudeRequest(history, message, imageData, projectId, userId)
+    responseStream = await handleClaudeRequest(history, message, imageData, projectId, userId, discussMode)
   } else if (model === "gpt") {
-    responseStream = await handleGPTRequest(history, message, imageData, projectId, userId)
+    responseStream = await handleGPTRequest(history, message, imageData, projectId, userId, discussMode)
   } else if (model === "v0") {
-    responseStream = await handleV0Request(history, message, projectId, userId)
+    responseStream = await handleV0Request(history, message, projectId, userId, discussMode)
   } else {
     return new Response(JSON.stringify({ error: "Unknown model" }), { status: 400 })
   }
@@ -125,12 +153,13 @@ async function handleGeminiRequest(
   generateImages: boolean,
   projectId: string,
   userId: string,
+  discussMode: boolean,
 ) {
   let genAI: GoogleGenerativeAI
   try {
     genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
   } catch (e) {
-    console.error("[v0] Gemini API key error:", e)
+    console.error("[Gemini] API key error:", e)
     return createErrorStream("Gemini API key missing or invalid")
   }
 
@@ -138,29 +167,22 @@ async function handleGeminiRequest(
 
   const searchQuery = message
   const searchResult = await doSearch(searchQuery)
-  const searchQueries: Array<{ query: string; results: string }> = [searchResult]
+  console.log(`[Gemini] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
+
+  // 21st.dev integration via prompt (no external call needed)
+  const isUIRequest = !discussMode && UI_KEYWORDS.some(keyword => message.toLowerCase().includes(keyword))
+  console.log(`[Gemini] UI request detected: ${isUIRequest} for message: ${message.substring(0, 50)}...`)
+  const uiContext = isUIRequest 
+    ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
+    : ""
+
+  const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext
 
   const conversationHistory = [
-    { role: "user", parts: [{ text: SYSTEM_PROMPT }] },
+    { role: "user", parts: [{ text: systemPrompt + `\n\nContext from web search on "${searchQuery}":\n${searchResult.results}` }] },
     {
       role: "model",
-      parts: [{ text: "Understood. I'll follow these guidelines when generating code and responses." }],
-    },
-    {
-      role: "user",
-      parts: [
-        {
-          text: `Context from web search on "${searchQuery}":\n${searchResult.results}\n\nIncorporate this information into your response. When generating code, use the format: \`\`\`language file="path/to/file.ext"\ncode here\n\`\`\``,
-        },
-      ],
-    },
-    {
-      role: "model",
-      parts: [
-        {
-          text: "Understood. I'll use the provided web search context and format code blocks properly with file paths.",
-        },
-      ],
+      parts: [{ text: discussMode ? "Understood. I'll engage in conversation without generating code." : "Understood. I'll use the provided web search context and format code blocks properly with file paths." }],
     },
     ...history.slice(0, -1).map((msg) => ({
       role: msg.role === "user" ? "user" : "model",
@@ -190,7 +212,7 @@ async function handleGeminiRequest(
   try {
     result = await chat.sendMessageStream(messageParts)
   } catch (e) {
-    console.error("[v0] Gemini stream error:", e)
+    console.error("[Gemini] Stream error:", e)
     return createErrorStream(`Gemini request failed: ${e}`)
   }
 
@@ -201,7 +223,7 @@ async function handleGeminiRequest(
   return new ReadableStream({
     async start(controller) {
       try {
-        console.log("[v0] Starting Gemini stream for project:", projectId)
+        console.log("[Gemini] Starting stream for project:", projectId)
 
         for await (const chunk of result.stream) {
           const text = chunk.text()
@@ -209,37 +231,37 @@ async function handleGeminiRequest(
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
         }
 
-        console.log("[v0] Stream complete, saving final message...")
+        console.log(`[Gemini] Extracted code blocks: ${discussMode ? 0 : extractCodeBlocks(fullResponse).length}`)
 
         await saveAssistantMessage(
           projectId,
           fullResponse,
-          searchQueries,
+          [searchResult],
           thinkingContent,
           controller,
           encoder,
           uploadedFiles,
           generateImages,
+          discussMode,
         )
 
-        console.log("[v0] Message saved successfully")
+        console.log("[Gemini] Message saved successfully")
       } catch (error) {
-        console.error("[v0] Stream processing error:", error)
+        console.error("[Gemini] Stream processing error:", error)
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`))
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`))
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, projectId })}\n\n`))
         } catch (e) {
-          console.error("[v0] Error sending error message:", e)
+          console.error("[Gemini] Error sending error message:", e)
         }
       } finally {
-        console.log("[v0] Closing stream controller")
         controller.close()
       }
     },
   })
 }
 
-async function handleClaudeRequest(history: any[], message: string, imageData: any, projectId: string, userId: string) {
+async function handleClaudeRequest(history: any[], message: string, imageData: any, projectId: string, userId: string, discussMode: boolean) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return createErrorStream("Claude API key not configured. Please add ANTHROPIC_API_KEY to your environment variables.")
   }
@@ -248,14 +270,22 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
   try {
     anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   } catch (e) {
-    console.error("[API/Chat] Anthropic SDK init error:", e)
+    console.error("[Claude] SDK init error:", e)
     return createErrorStream(`Claude SDK failed: ${e}`)
   }
 
   try {
     const searchQuery = message
     const searchResult = await doSearch(searchQuery)
-    const searchQueries: Array<{ query: string; results: string }> = [searchResult]
+    console.log(`[Claude] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
+
+    const isUIRequest = !discussMode && UI_KEYWORDS.some(keyword => message.toLowerCase().includes(keyword))
+    console.log(`[Claude] UI request detected: ${isUIRequest}`)
+    const uiContext = isUIRequest 
+      ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
+      : ""
+
+    const systemPrompt = (discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext) + `\n\nContext from web search: ${searchResult.results}`
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role,
@@ -270,9 +300,9 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
       async start(controller) {
         try {
           const stream = await anthropic.messages.create({
-            model: "claude-sonnet-4-5", // Updated to latest Claude Sonnet 4.5 (Sep 2025)
+            model: "claude-3-5-sonnet-20241022",
             max_tokens: 8192,
-            system: SYSTEM_PROMPT + `\n\nContext from web search: ${searchResult.results}`,
+            system: systemPrompt,
             messages: [...conversationHistory, { role: "user", content: message }],
             stream: true,
           })
@@ -285,22 +315,25 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
             }
           }
 
-          await saveAssistantMessage(projectId, fullResponse, searchQueries, thinkingContent, controller, encoder)
+          console.log(`[Claude] Extracted code blocks: ${discussMode ? 0 : extractCodeBlocks(fullResponse).length}`)
+
+          await saveAssistantMessage(projectId, fullResponse, [searchResult], thinkingContent, controller, encoder, undefined, false, discussMode)
         } catch (error) {
-          console.error("[API/Chat] Claude stream error:", error)
-          return createErrorStream(`Claude request failed: ${error}`)
+          console.error("[Claude] Stream error:", error)
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`))
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, projectId })}\n\n`))
         } finally {
           controller.close()
         }
       },
     })
   } catch (e) {
-    console.error("[API/Chat] Claude handler error:", e)
+    console.error("[Claude] Handler error:", e)
     return createErrorStream(`Claude handler failed: ${e}`)
   }
 }
 
-async function handleGPTRequest(history: any[], message: string, imageData: any, projectId: string, userId: string) {
+async function handleGPTRequest(history: any[], message: string, imageData: any, projectId: string, userId: string, discussMode: boolean) {
   if (!process.env.OPENAI_API_KEY) {
     return createErrorStream("OpenAI API key not configured. Please add OPENAI_API_KEY to your environment variables.")
   }
@@ -310,14 +343,22 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
     const OpenAI = (await import('openai')).default;
     openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   } catch (e) {
-    console.error("[API/Chat] OpenAI SDK load error:", e);
+    console.error("[GPT] SDK load error:", e);
     return createErrorStream(`Failed to load OpenAI SDK: ${e}`);
   }
 
   try {
     const searchQuery = message
     const searchResult = await doSearch(searchQuery)
-    const searchQueries: Array<{ query: string; results: string }> = [searchResult]
+    console.log(`[GPT] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
+
+    const isUIRequest = !discussMode && UI_KEYWORDS.some(keyword => message.toLowerCase().includes(keyword))
+    console.log(`[GPT] UI request detected: ${isUIRequest}`)
+    const uiContext = isUIRequest 
+      ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
+      : ""
+
+    const systemPrompt = (discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext) + `\n\nContext from web search: ${searchResult.results}`
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role,
@@ -332,9 +373,9 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
       async start(controller) {
         try {
           const stream = await openai.chat.completions.create({
-            model: "gpt-5", // Updated to latest GPT-5 (Aug 2025); fallback to "gpt-4.1" if access denied
+            model: "gpt-4o",
             messages: [
-              { role: "system", content: SYSTEM_PROMPT + `\n\nContext from web search: ${searchResult.results}` },
+              { role: "system", content: systemPrompt },
               ...conversationHistory,
               { role: "user", content: message },
             ],
@@ -350,22 +391,28 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
             }
           }
 
-          await saveAssistantMessage(projectId, fullResponse, searchQueries, thinkingContent, controller, encoder, undefined, false)
+          console.log(`[GPT] Extracted code blocks: ${discussMode ? 0 : extractCodeBlocks(fullResponse).length}`)
+
+          await saveAssistantMessage(projectId, fullResponse, [searchResult], thinkingContent, controller, encoder, undefined, false, discussMode)
         } catch (error) {
-          console.error("[API/Chat] GPT stream error:", error)
-          return createErrorStream(`GPT request failed: ${error}`)
+          console.error("[GPT] Stream error:", error)
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`))
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, projectId })}\n\n`))
         } finally {
           controller.close()
         }
       },
     })
   } catch (e) {
-    console.error("[API/Chat] GPT handler error:", e)
+    console.error("[GPT] Handler error:", e)
     return createErrorStream(`GPT handler failed: ${e}`)
   }
 }
 
-async function handleV0Request(history: any[], message: string, projectId: string, userId: string) {
+async function handleV0Request(history: any[], message: string, projectId: string, userId: string, discussMode: boolean) {
+  if (discussMode) {
+    return createErrorStream("Discuss mode is not supported with v0 (code generation model). Please switch to another model.")
+  }
   return createErrorStream("v0 integration coming soon. This will use Vercel's v0 API for enhanced code generation.")
 }
 
@@ -392,16 +439,17 @@ async function saveAssistantMessage(
   encoder: any,
   uploadedFiles?: any[],
   generateImages?: boolean,
+  discussMode: boolean = false,
 ) {
   try {
-    console.log("[v0] Extracting code blocks from response...")
-    const codeBlocks = extractCodeBlocks(fullResponse)
-    console.log(`[v0] Found ${codeBlocks.length} code blocks`)
+    console.log("[Save] Extracting code blocks from response...")
+    const codeBlocks = discussMode ? [] : extractCodeBlocks(fullResponse)
+    console.log(`[Save] Found ${codeBlocks.length} code blocks`)
 
-    const cleanContent = removeCodeBlocks(fullResponse)
-    const hasArtifact = codeBlocks.length > 0
+    const cleanContent = discussMode ? fullResponse.trim() : removeCodeBlocks(fullResponse)
+    const hasArtifact = codeBlocks.length > 0 && !discussMode
 
-    console.log("[v0] Inserting message into database...")
+    console.log("[Save] Inserting message into database...")
     const [newMessage] = await db
       .insert(messages)
       .values({
@@ -414,15 +462,15 @@ async function saveAssistantMessage(
       })
       .returning()
 
-    console.log("[v0] Message inserted with ID:", newMessage.id)
+    console.log("[Save] Message inserted with ID:", newMessage.id)
 
     if (hasArtifact && codeBlocks.length > 0) {
       const existingFiles = await db.select().from(files).where(eq(files.projectId, projectId))
       const fileIds: string[] = []
 
-      console.log("[v0] Processing code blocks...")
+      console.log("[Save] Processing code blocks...")
       for (const block of codeBlocks) {
-        console.log(`[v0] Inserting file: ${block.path}`)
+        console.log(`[Save] Inserting file: ${block.path}`)
 
         const previousFile = existingFiles.find((f) => f.path === block.path)
         const previousContent = previousFile?.content ?? ""
@@ -445,32 +493,32 @@ async function saveAssistantMessage(
           .returning()
 
         fileIds.push(file.id)
-        console.log(`[v0] File inserted: ${file.id}`)
+        console.log(`[Save] File inserted: ${file.id}`)
       }
 
-      console.log("[v0] Creating artifact...")
+      console.log("[Save] Creating artifact...")
       await db.insert(artifacts).values({
         projectId,
         messageId: newMessage.id,
         title: `Code from ${new Date().toLocaleString()}`,
         fileIds,
       })
-      console.log("[v0] Artifact created")
+      console.log("[Save] Artifact created")
     }
 
     await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.id, projectId))
 
-    console.log("[v0] Sending done signal to client")
+    console.log("[Save] Sending done signal to client")
     controller.enqueue(
-      encoder.encode(`data: ${JSON.stringify({ done: true, messageId: newMessage.id, hasArtifact })}\n\n`),
+      encoder.encode(`data: ${JSON.stringify({ done: true, messageId: newMessage.id, hasArtifact, projectId })}\n\n`),
     )
   } catch (e) {
-    console.error("[v0] Save assistant error:", e)
+    console.error("[Save] Assistant error:", e)
     try {
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Failed to save response" })}\n\n`))
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`))
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, projectId })}\n\n`))
     } catch (sendError) {
-      console.error("[v0] Error sending error message:", sendError)
+      console.error("[Save] Error sending error message:", sendError)
     }
   } finally {
     controller.close()

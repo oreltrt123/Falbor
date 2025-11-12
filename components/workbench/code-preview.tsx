@@ -226,44 +226,43 @@ export function CodePreview({ projectId }: CodePreviewProps) {
   }), [])
 
   return (
-<div className="h-full flex flex-col border border-[#4444442d] rounded-2xl bg-[#1b1b1b] relative overflow-hidden">
-  {/* Optional subtle left shadow to indicate draggable border */}
-  <div className="absolute left-0 top-0 h-full w-1 bg-gray-500 opacity-0 hover:opacity-30 pointer-events-none rounded-l"></div>
+  <div className="h-full flex flex-col border border-[#4444442d] rounded-2xl bg-[#1b1b1b] relative overflow-hidden">
+    <div className="absolute left-0 top-0 h-full w-1 bg-gray-500 opacity-0 hover:opacity-30 pointer-events-none rounded-l"></div>
 
-  <Tabs defaultValue="code" className="flex-1 flex flex-col overflow-hidden">
-    <MainHeader
-      previewUrl={previewUrl}
-      showDownloadMenu={showDownloadMenu}
-      setShowDownloadMenu={setShowDownloadMenu}
-      handleDownload={handleDownload}
-    />
-    <PreviewTab loading={loading} previewUrl={previewUrl} />
-    <CodeTab
-      sidebarView={sidebarView}
-      setSidebarView={setSidebarView}
-      files={files}
-      selectedFile={selectedFile}
-      setSelectedFile={setSelectedFile}
-      editedContent={editedContent}
-      setEditedContent={setEditedContent}
-      isEditorFocused={isEditorFocused}
-      setIsEditorFocused={setIsEditorFocused}
-      searchQuery={searchQuery}
-      setSearchQuery={setSearchQuery}
-      searchResults={searchResults}
-      isSearching={isSearching}
-      highlightMatch={highlightMatch}
-      isDirty={isDirty}
-      handleSave={handleSave}
-      projectId={projectId}
-      fetchFiles={fetchFiles}
-      scrollRef={scrollRef}
-      monacoRef={monacoRef}
-      editorOptions={editorOptions}
-      loading={loading}
-    />
-  </Tabs>
-</div>
 
+      <Tabs defaultValue="code" className="flex-1 flex flex-col overflow-hidden">
+        <MainHeader
+          previewUrl={previewUrl}
+          showDownloadMenu={showDownloadMenu}
+          setShowDownloadMenu={setShowDownloadMenu}
+          handleDownload={handleDownload}
+        />
+        <PreviewTab loading={loading} previewUrl={previewUrl} />
+        <CodeTab
+          sidebarView={sidebarView}
+          setSidebarView={setSidebarView}
+          files={files}
+          selectedFile={selectedFile}
+          setSelectedFile={setSelectedFile}
+          editedContent={editedContent}
+          setEditedContent={setEditedContent}
+          isEditorFocused={isEditorFocused}
+          setIsEditorFocused={setIsEditorFocused}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          searchResults={searchResults}
+          isSearching={isSearching}
+          highlightMatch={highlightMatch}
+          isDirty={isDirty}
+          handleSave={handleSave}
+          projectId={projectId}
+          fetchFiles={fetchFiles}
+          scrollRef={scrollRef}
+          monacoRef={monacoRef}
+          editorOptions={editorOptions}
+          loading={loading}
+        />
+      </Tabs>
+    </div>
   )
 }

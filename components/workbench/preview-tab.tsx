@@ -1,4 +1,3 @@
-// components/workbench/preview-tab.tsx
 import { Loader2 } from "lucide-react"
 import { TabsContent } from "@/components/ui/tabs"
 

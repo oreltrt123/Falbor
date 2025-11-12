@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { createPortal } from "react-dom"
 import { Button } from "@/components/ui/button"
 import { ChevronDown, AlertCircle } from "lucide-react"
-import { MODEL_OPTIONS } from "@/lib/prompt"
+import { MODEL_OPTIONS } from "@/lib/common/prompts/prompt"
 
 interface ModelSelectorProps {
   currentModel: string

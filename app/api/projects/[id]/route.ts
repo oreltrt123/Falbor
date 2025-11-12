@@ -1,3 +1,5 @@
+// api/projects/id 
+// No changes needed - this handles model updates independently of the preview/sandbox.
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/config/db"
 import { projects } from "@/config/schema"

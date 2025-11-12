@@ -60,7 +60,7 @@ export function GithubClone() {
   }
 
   return (
-    <div className="w-[29%] mx-auto">
+    <div className="w-[29%]">
       <button
         type="button"
         onClick={() => setOpen(true)}

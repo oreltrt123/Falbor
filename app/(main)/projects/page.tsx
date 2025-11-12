@@ -1,5 +1,5 @@
 import { Navbar } from '@/components/navbar/navbar'
-import { ProjectsList } from '@/components/projects-list'
+import { ProjectsList } from '@/components/project/projects-list'
 import { auth } from '@clerk/nextjs/server'
 import React from 'react'
 

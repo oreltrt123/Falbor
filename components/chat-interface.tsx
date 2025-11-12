@@ -16,6 +16,8 @@ export function ChatInterface({ project, initialMessages }: ChatInterfaceProps) 
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [windowWidth, setWindowWidth] = useState(0)
   const [isResizingState, setIsResizingState] = useState(false)
+  const [isAutoSending, setIsAutoSending] = useState(false)
+  const hasAutoTriggered = useRef(false) // NEW: Ref to ensure single trigger
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
 
@@ -46,6 +48,110 @@ export function ChatInterface({ project, initialMessages }: ChatInterfaceProps) 
       setMessages(validMessages)
     }
   }, [initialMessages])
+
+  // UPDATED: Auto-trigger AI response ONLY on mount if last message is unpaired user message
+  useEffect(() => {
+    // Run only once on mount
+    if (!hasAutoTriggered.current && messages.length > 0 && !isAutoSending) {
+      const lastMessage = messages[messages.length - 1]
+      const assistantMessages = messages.filter(m => m.role === "assistant")
+      if (lastMessage.role === "user" && assistantMessages.length === 0) { // Only user message(s), no assistant yet
+        hasAutoTriggered.current = true
+        setIsAutoSending(true)
+        // Trigger /api/chat to generate response based on history
+        handleAutoGenerate(lastMessage.content)
+      }
+    }
+  }, []) // Empty deps: Run only once after mount
+
+  const handleAutoGenerate = async (userContent: string) => {
+    // Add temp assistant message to UI immediately
+    const tempAssistant: Message = {
+      id: `temp-auto-${Date.now()}`,
+      projectId: project.id,
+      role: "assistant",
+      content: "",
+      hasArtifact: false,
+      createdAt: new Date().toISOString(),
+    }
+    setMessages(prev => [...prev, tempAssistant])
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: project.id,
+          message: userContent, // Re-send the user's prompt to generate response based on history
+          model: project.selectedModel || "gemini",
+        }),
+      })
+
+      if (!res.ok) {
+        throw new Error(`API error: ${res.status}`)
+      }
+
+      const reader = res.body?.getReader()
+      if (!reader) throw new Error("No stream")
+
+      const decoder = new TextDecoder()
+      let accumulated = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value)
+        const lines = chunk.split("\n").filter(Boolean)
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.text) {
+                accumulated += data.text
+                // Strip tags for display
+                const stripped = accumulated
+                  .replace(/<Thinking>[\s\S]*?<\/Thinking>/gi, "")
+                  .replace(/<search>[\s\S]*?<\/search>/gi, "")
+                  .replace(/```(\w+)\s+file="([^"]+)"\n[\s\S]*?```/g, "")
+                  .trim()
+                setMessages(prev => {
+                  const updated = [...prev]
+                  updated[updated.length - 1].content = stripped
+                  return updated
+                })
+              }
+              if (data.done) {
+                // Final update with full data
+                setMessages(prev => {
+                  const updated = [...prev]
+                  updated[updated.length - 1] = {
+                    ...updated[updated.length - 1],
+                    id: data.messageId || `final-${Date.now()}`,
+                    content: accumulated
+                      .replace(/<Thinking>[\s\S]*?<\/Thinking>/gi, "")
+                      .replace(/<search>[\s\S]*?<\/search>/gi, "")
+                      .replace(/```(\w+)\s+file="([^"]+)"\n[\s\S]*?```/g, "")
+                      .trim(),
+                    hasArtifact: data.hasArtifact ?? false,
+                  }
+                  return updated
+                })
+                // Refresh page to load full DB state (artifacts, etc.)
+                window.location.reload() // Or use router.refresh() if using app dir
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[Auto-Generate] Error:", err)
+      setMessages(prev => prev.slice(0, -1)) // Remove temp
+    } finally {
+      setIsAutoSending(false)
+    }
+  }
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -117,7 +223,7 @@ const handleMouseDown = (e: React.MouseEvent) => {
         >
           <div
             ref={messagesContainerRef}
-            className={`flex-1 overflow-y-auto py-2 overflow-x-hidden chat-messages-scroll ${isNarrow ? "px-4" : "px-0"} ${isResizingState ? 'transition-none' : 'transition-all duration-300 ease-in-out'}`}
+            className={`flex-1 overflow-y-auto overflow-x-hidden chat-messages-scroll py-4 mt-14 ${isNarrow ? "px-4" : "px-0"} ${isResizingState ? 'transition-none' : 'transition-all duration-300 ease-in-out'}`}
           >
             <div className={`${isNarrow ? "" : "max-w-2xl mx-auto px-4"} ${isResizingState ? 'transition-none' : 'transition-all duration-300 ease-in-out'}`}>
               <MessageList messages={messages} />
@@ -140,11 +246,11 @@ const handleMouseDown = (e: React.MouseEvent) => {
         {/* Vertical Resizable Divider */}
         <div
           onMouseDown={handleMouseDown}
-          className="w-1 cursor-col-resize hover:bg-[#1b1b1b]"
+          className="w-1 cursor-col-resize hover:bg-[#1b1b1b] py-4 mt-14"
         />
 
         {/* Right Code Panel */}
-        <div className="flex-1 px-2  py-4 mt-14 overflow-hidden">
+        <div className="flex-1 px-2  py-4 mt-10 overflow-hidden">
           <CodePreview projectId={project.id} />
         </div>
       </div>

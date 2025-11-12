@@ -9,7 +9,8 @@ export default function PricingPage() {
         <div className="max-w-4xl mx-auto space-y-8">
           <div className="text-center">
             <div style={{ maxWidth: '800px', margin: '0 auto', padding: '0 1rem' }}>
-              <PricingTable />
+              {/* <PricingTable /> */}
+              <span className='text-white'>There is no payment on the site yet.</span>
             </div>
           </div>
         </div>

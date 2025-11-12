@@ -1,13 +1,13 @@
+// Modified: app/page.tsx (or wherever HomePage is defined)
 import { auth } from "@clerk/nextjs/server"
 import { Navbar } from "@/components/navbar/navbar"
-import { ChatInput } from "@/components/workbench/chat-input"
-import { GithubClone } from "@/components/github-clone"
+import { InputArea } from "@/components/workbench/input-area" // New import
 import { Globe } from "@/components/ui/globe"
 import Footer from "@/components/layout/footer"
 import HeroSection from "@/components/layout/HeroSection"
 import Features from '@/components/layout/features'
 import FAQ from '@/components/layout/faq'
-import { ProjectsList } from '@/components/projects-list'
+// import { ProjectsList } from '@/components/projects-list'
 
 export default async function HomePage() {
   const { userId } = await auth()
@@ -37,21 +37,12 @@ export default async function HomePage() {
                 </p>
               </div>
 
-              {/* Chat Input */}
+              {/* Input Area (replaces separate ChatInput and GithubClone) */}
               <div className="w-full flex justify-center">
                 <div className="w-[55%] sm:w-[45%] md:w-[35%] lg:w-[30%]">
-                  <ChatInput isAuthenticated={!!userId} />
+                  <InputArea isAuthenticated={!!userId} />
                 </div>
               </div>
-
-              {/* GitHub Clone Input (only for authenticated users) */}
-              {userId && (
-                <div className="w-full flex justify-center">
-                  <div className="w-[55%] sm:w-[45%] md:w-[35%] lg:w-[30%]">
-                    <GithubClone />
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </main>
