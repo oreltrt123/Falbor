@@ -6,14 +6,14 @@ import { projects } from "@/config/schema"
 import { eq, and } from "drizzle-orm"
 import type { NextRequest } from "next/server"
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { userId } = await auth()
 
   if (!userId) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
   }
 
-  const projectId = params.id
+  const { id: projectId } = await params  // Await params and destructure id
 
   try {
     const body = await request.json()
