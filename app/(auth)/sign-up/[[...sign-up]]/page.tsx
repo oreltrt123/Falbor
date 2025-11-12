@@ -148,17 +148,8 @@ export default function Page() {
               await signUp.prepareEmailAddressVerification({ strategy: "email_code" })
               setError("Check your email for verification code.")
             }
+            // Add handling for other unverified fields if needed (e.g., phone: preparePhoneNumberVerification)
           }
-          break
-        case "needs_email_verification":
-        case "needs_factor_one":
-          await signUp.prepareEmailAddressVerification({ strategy: "email_code" })
-          setStep('verify')
-          setError("Check your email for a verification code.")
-          break
-        case "needs_second_factor":
-          setStep('verify')
-          setError("Enter the code sent to your email/phone.")
           break
         default:
           setError(`Status: ${result.status}. Check console.`)
