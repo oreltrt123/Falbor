@@ -11,8 +11,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
     "@clerk/nextjs": "latest",
+    "@clerk/types": "^4.99.0",
     "@e2b/code-interpreter": "^2.2.0",
-    "@e2b/sdk": "^0.12.5",
     "@google/generative-ai": "latest",
     "@hookform/resolvers": "^3.10.0",
     "@monaco-editor/react": "^4.7.0",
@@ -59,6 +59,7 @@
     "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.6",
     "drizzle-orm": "^0.44.7",
+    "e2b": "^2.6.4",
     "embla-carousel-react": "8.5.1",
     "esbuild-wasm": "^0.25.12",
     "input-otp": "1.4.1",
