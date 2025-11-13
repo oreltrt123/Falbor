@@ -3,7 +3,7 @@ import React, { useState } from "react"
 import { useSignIn } from "@clerk/nextjs"
 import type { OAuthStrategy } from "@clerk/types"
 import Link from "next/link"
-import RotatingEarth from "@/components/ui/dotted-globe";
+// import RotatingEarth from "@/components/ui/dotted-globe";
 import FeatureShowcase from '@/components/auth/FeatureShowcase'
 
 export default function Page() {

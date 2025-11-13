@@ -1,4 +1,3 @@
-// components/workbench/chat-input.tsx
 "use client"
 
 import type React from "react"
@@ -6,7 +5,7 @@ import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "re
 import { useRouter } from "next/navigation"
 import { useUser } from "@clerk/nextjs"
 import { Button } from "@/components/ui/button"
-import { ChevronDown, Loader, MessageCircle } from "lucide-react"
+import { ChevronDown, Loader } from "lucide-react"
 import type { Message } from "@/config/schema"
 import Link from "next/link"
 
@@ -31,6 +30,15 @@ export interface ChatInputRef {
   insertPrompt: (prompt: string) => void
 }
 
+interface ModelOption {
+  label: string
+  icon: string
+  color: string
+  soon?: string
+}
+
+export type ModelType = "gemini" | "v0" | "claude" | "gpt" | "grok"
+
 const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInputImpl(
   {
     isAuthenticated,
@@ -41,7 +49,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     connected = false,
     onCloseIdeas,
   },
-  ref
+  ref,
 ) {
   const [message, setMessage] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -51,9 +59,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [creditsData, setCreditsData] = useState<CreditsData | null>(null)
   const [timeLeft, setTimeLeft] = useState(0)
-  const [selectedModel, setSelectedModel] = useState<"gemini" | "v0" | "claude" | "gpt" | "grok">(
-    initialModel as "gemini" | "claude" | "gpt"| "v0" | "grok",
-  )
+  const [selectedModel, setSelectedModel] = useState<ModelType>(initialModel as ModelType)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [isDiscussMode, setIsDiscussMode] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -63,12 +69,12 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   const router = useRouter()
   const { user, isLoaded } = useUser()
 
-  const modelOptions = {
+  const modelOptions: Record<ModelType, ModelOption> = {
     gemini: { label: "Gemini 2.0", icon: "/icons/gemini.png", color: "text-blue-400" },
-    claude: { label: "Claude Sonnet 4.5", icon: "/icons/claude.png", color: "text-purple-400" }, // Updated label
-    gpt: { label: "GPT-5", icon: "/icons/openai.png", color: "text-green-400" }, // Updated label
-    v0: { label: "v0", icon: "/icons/logoV0.png", color: "text-orange-400", soon: "SOON"},
-    grok: { label: "Grok-3", icon: "/icons/grok.png", color: "text-red-400", soon: "SOON"},
+    claude: { label: "Claude Sonnet 4.5", icon: "/icons/claude.png", color: "text-purple-400" },
+    gpt: { label: "GPT-5", icon: "/icons/openai.png", color: "text-green-400" },
+    v0: { label: "v0", icon: "/icons/logoV0.png", color: "text-orange-400", soon: "SOON" },
+    grok: { label: "Grok-3", icon: "/icons/grok.png", color: "text-red-400", soon: "SOON" },
   }
 
   useEffect(() => {
@@ -180,7 +186,6 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     }
   }
 
-  // Fixed: Consistent deps array (always length 3). Added initialModel to condition for safety.
   useEffect(() => {
     if (projectId && selectedModel !== initialModel && !modelOptions[selectedModel]?.soon) {
       const saveModel = async () => {
@@ -196,7 +201,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
       }
       saveModel()
     }
-  }, [selectedModel, projectId, initialModel]) // Always these 3; no conditionals here
+  }, [selectedModel, projectId, initialModel])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -253,17 +258,22 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
           role: "user",
           content: userMessage,
           hasArtifact: false,
-          createdAt: new Date().toISOString(),
+          createdAt: new Date(),
+          thinking: null,
+          searchQueries: null,
         }
         onNewMessage(tempUser)
 
+        const tempAssistantId = `temp-assistant-${Date.now()}`
         const tempAssistant: Message = {
-          id: `temp-assistant-${Date.now()}`,
+          id: tempAssistantId,
           projectId,
           role: "assistant",
           content: "",
           hasArtifact: false,
-          createdAt: new Date().toISOString(),
+          createdAt: new Date(),
+          thinking: null,
+          searchQueries: null,
         }
         onNewMessage(tempAssistant)
 
@@ -293,6 +303,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
           const decoder = new TextDecoder()
           let accumulated = ""
+          let lineBuffer = "" // Added buffer to handle incomplete SSE lines
           let streamError = false
 
           while (true) {
@@ -304,9 +315,13 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               }
 
               const chunk = decoder.decode(value, { stream: true })
-              const lines = chunk.split("\n")
+              lineBuffer += chunk
+              const lines = lineBuffer.split("\n")
 
-              for (const line of lines) {
+              lineBuffer = lines[lines.length - 1]
+
+              for (let i = 0; i < lines.length - 1; i++) {
+                const line = lines[i]
                 if (line.startsWith("data: ")) {
                   try {
                     const data = JSON.parse(line.slice(6))
@@ -321,33 +336,25 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                     if (data.text) {
                       accumulated += data.text
 
-                      // Strip code blocks AND <Thinking>/<search> tags from message display
-                      const strippedContent = accumulated
-                        .replace(/<Thinking>[\s\S]*?<\/Thinking>/gi, "")
-                        .replace(/<search>[\s\S]*?<\/search>/gi, "")
-                        .replace(/```(\w+)\s+file="([^"]+)"\n[\s\S]*?```/g, "")
-                        .trim()
-
-                      onNewMessage({ ...tempAssistant, content: strippedContent })
+                      onNewMessage({
+                        ...tempAssistant,
+                        content: accumulated,
+                        id: tempAssistantId,
+                      })
                     }
 
                     if (data.done) {
                       console.log("[v0] Received done signal, message ID:", data.messageId)
 
-                      // Final message without code blocks/tags
-                      const finalContent = accumulated
-                        .replace(/<Thinking>[\s\S]*?<\/Thinking>/gi, "")
-                        .replace(/<search>[\s\S]*?<\/search>/gi, "")
-                        .replace(/```(\w+)\s+file="([^"]+)"\n[\s\S]*?```/g, "")
-                        .trim()
-
                       onNewMessage({
                         id: data.messageId || `final-${Date.now()}`,
                         projectId,
                         role: "assistant",
-                        content: finalContent,
+                        content: accumulated,
                         hasArtifact: data.hasArtifact ?? false,
-                        createdAt: new Date().toISOString(),
+                        createdAt: new Date(),
+                        thinking: null,
+                        searchQueries: null,
                       })
                     }
                   } catch (parseError) {
@@ -362,9 +369,6 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               break
             }
           }
-
-          console.log("[v0] Refreshing page...")
-          router.refresh()
         } catch (fetchError) {
           console.error("[v0] Fetch error:", fetchError)
           alert(`Network error: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`)
@@ -381,7 +385,6 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             discussMode: isDiscussMode,
           }),
         })
-        router.refresh()
       } else {
         const res = await fetch("/api/projects", {
           method: "POST",
@@ -410,17 +413,21 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     }
   }
 
-  useImperativeHandle(ref, () => ({
-    insertPrompt: (prompt: string) => {
-      setMessage((prev) => prev + (prev.trim() ? "\n\n" : "") + prompt)
-      setTimeout(() => {
-        textareaRef.current?.focus()
-        if (textareaRef.current) {
-          textareaRef.current.scrollTop = textareaRef.current.scrollHeight
-        }
-      }, 0)
-    },
-  }), [])
+  useImperativeHandle(
+    ref,
+    () => ({
+      insertPrompt: (prompt: string) => {
+        setMessage((prev) => prev + (prev.trim() ? "\n\n" : "") + prompt)
+        setTimeout(() => {
+          textareaRef.current?.focus()
+          if (textareaRef.current) {
+            textareaRef.current.scrollTop = textareaRef.current.scrollHeight
+          }
+        }, 0)
+      },
+    }),
+    [],
+  )
 
   if (!isLoaded || !isAuthenticated) {
     return (
@@ -470,7 +477,10 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className={`relative bg-[#1f1e1e] ${formBorderClass} border-5 border-[#272727] ${formRoundedClass}`}>
+      <form
+        onSubmit={handleSubmit}
+        className={`relative bg-[#1f1e1e] ${formBorderClass} border-5 border-[#272727] ${formRoundedClass}`}
+      >
         <textarea
           ref={textareaRef}
           value={message}
@@ -478,7 +488,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
           onKeyDown={handleKeyDown}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          placeholder={isDiscussMode ? "Discuss anything with Falbor..." : placeholder}
+          placeholder={isDiscussMode ? "Discuss anything..." : placeholder}
           className="w-full min-h-[100px] max-h-[150px] resize-none bg-transparent text-white placeholder:text-muted-foreground border border-[#505050a2]
                      px-3 pt-3 pb-10 text-base outline-none overflow-y-auto field-sizing-content chat-messages-scroll rounded-[9px]
                      disabled:cursor-not-allowed disabled:opacity-50"
@@ -510,27 +520,14 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               variant="ghost"
               size="sm"
             >
-                {!isImproving ? (
-                    <img width={16} height={16} src="/enhance_prompt.png" alt="" />
-                ) : (
-                    <span className="ml-1 animate-pulse">
-                      <Loader />
-                    </span>
-                )}
+              {!isImproving ? (
+                <img width={16} height={16} src="/enhance_prompt.png" alt="" />
+              ) : (
+                <span className="ml-1 animate-pulse">
+                  <Loader />
+                </span>
+              )}
             </Button>
-
-            {/* <Button
-              type="button"
-              onClick={() => setIsDiscussMode(!isDiscussMode)}
-              disabled={isLoading}
-              className={`px-2 py-1 text-sm text-white/75 hover:text-white hover:bg-[#313135] h-auto ml-1 ${isDiscussMode ? 'bg-[#ff8c001f] hover:bg-[#ff8c0025] text-white' : 'text-white/75 hover:text-white hover:bg-[#313135]'} rounded-md`}
-              title="Toggle Discuss Mode"
-              variant="ghost"
-              size="sm"
-            >
-              <MessageCircle className="w-4 h-4" />
-              <span className="ml-1">{isDiscussMode ? 'Code' : 'Discuss'}</span>
-            </Button> */}
 
             <div className="relative" ref={dropdownRef}>
               <Button
@@ -542,7 +539,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                 size="sm"
               >
                 <img
-                  src={modelOptions[selectedModel].icon}
+                  src={modelOptions[selectedModel].icon || "/placeholder.svg"}
                   alt=""
                   className={`w-3.5 h-3.5 ${modelOptions[selectedModel].color}`}
                 />
@@ -567,7 +564,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                             alert(`${label} is coming soon!`)
                             return
                           }
-                          setSelectedModel(key as any)
+                          setSelectedModel(key as ModelType)
                           setShowModelDropdown(false)
                         }}
                         disabled={isComingSoon}
@@ -575,7 +572,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                           selectedModel === key ? "bg-[#3333337a]" : ""
                         } ${isComingSoon ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
-                        <img src={icon} alt="" className={`w-3.5 h-3.5 ${color}`} />
+                        <img src={icon || "/placeholder.svg"} alt="" className={`w-3.5 h-3.5 ${color}`} />
                         <span className="text-white/75">{label}</span>
                         {soon && <span className="text-xs text-white/70 bg-[#333333e7] w-[35%] rounded-4xl">SOON</span>}
                         {selectedModel === key && !isComingSoon && <span className="ml-auto text-green-400">✓</span>}
@@ -602,23 +599,12 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             type="submit"
             size="icon"
             className="h-7 w-7 p-1.5 bg-[#2f2f30]"
-            disabled={!message.trim() || isLoading || !isAuthenticated || modelOptions[selectedModel]?.soon}
+            disabled={!message.trim() || isLoading || !isAuthenticated || !!modelOptions[selectedModel]?.soon}
           >
             <img width={16} height={16} src="/mouse-cursor.png" alt="" />
           </Button>
         </div>
       </form>
-
-      {/* {creditsData && (
-        <div className="bg-[#272727] p-1.5 mt-[-5px] z-[-10px] rounded-b-lg flex items-center justify-between text-xs text-muted-foreground px-1">
-          <div className="flex items-center gap-2 ml-1.5 mt-0.5">
-            <span className="text-[#ffffffd0] hover:text-[#ffffffb6]">{creditsData.credits} credits remaining</span>
-          </div>
-          <span className="mr-1.5 mt-0.5 text-[#ffffffd0] hover:text-[#ffffffb6]">
-            {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}
-          </span>
-        </div>
-      )} */}
     </div>
   )
 })

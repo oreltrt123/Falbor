@@ -1,29 +1,24 @@
 // components/workbench/input-area.tsx
 "use client"
-
 import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Lightbulb } from "lucide-react"
-import { ChatInput } from "./chat-input"
+import { ChatInput, type ChatInputRef } from "./chat-input"  // Import ChatInputRef for typing
 import { GithubClone } from "@/components/github-clone"
 import { IdeasPanel } from "@/components/ideas-panel"
-
 interface InputAreaProps {
   isAuthenticated: boolean
 }
-
 export function InputArea({ isAuthenticated }: InputAreaProps) {
   const [showIdeas, setShowIdeas] = useState(false)
-  const chatInputRef = useRef<any>(null)
-
+  const chatInputRef = useRef<ChatInputRef | null>(null)  // Typed ref (no more 'any')
   const handleSelectIdea = (prompt: string) => {
     chatInputRef.current?.insertPrompt(prompt)
   }
-
   return (
     <div className="">
       <ChatInput
-        ref={chatInputRef}
+        {...({ ref: chatInputRef } as any)}
         isAuthenticated={isAuthenticated}
         connected={showIdeas}
         onCloseIdeas={() => setShowIdeas(false)}

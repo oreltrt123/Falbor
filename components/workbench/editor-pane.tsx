@@ -11,7 +11,7 @@ interface EditorPaneProps {
   setIsEditorFocused: (focused: boolean) => void
   isDirty: boolean
   handleSave: () => void
-  scrollRef: React.RefObject<HTMLDivElement>
+  scrollRef: React.RefObject<HTMLDivElement | null>
   monacoRef: React.RefObject<any>
   editorOptions: any
 }

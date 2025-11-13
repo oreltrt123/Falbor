@@ -30,7 +30,7 @@ interface FileTreeProps {
     deletions?: number
   }>
   onFileSelect: (file: { path: string; content: string; language: string }) => void
-  selectedPath?: string
+  selectedPath?: string | null
   projectId: string
   onFilesChange?: () => void
 }
@@ -99,7 +99,7 @@ function TreeNode({
 }: {
   node: FileNode
   onFileSelect: (file: { path: string; content: string; language: string }) => void
-  selectedPath?: string
+  selectedPath?: string | null
   level?: number
   onContextMenu: (e: React.MouseEvent, node: FileNode) => void
   projectId: string

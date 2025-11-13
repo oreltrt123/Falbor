@@ -10,7 +10,7 @@ const PREMIUM_PLAN_ID = process.env.PREMIUM_PLAN_ID! // Full plan ID, e.g., 'cpl
 
 export async function POST(req: Request) {
   const payload = await req.text()
-  const heads = headers()
+  const heads = await headers()
 
   const svix_id = heads.get('svix-id')
   const svix_timestamp = heads.get('svix-timestamp')
@@ -71,6 +71,7 @@ export async function POST(req: Request) {
             userId,
             credits: 10, // Default
             lastRegenTime: new Date(),
+            lastClaimedGiftId: null,
             lastMonthlyClaim: null,
             isPremium: isActivePremium,
           })
@@ -90,6 +91,7 @@ export async function POST(req: Request) {
     return new NextResponse('OK', { status: 200 })
   } catch (err) {
     console.error('Webhook error:', err, { payload }) // Log payload on error
-    return new NextResponse(`Verification failed: ${err.message}`, { status: 400 })
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return new NextResponse(`Verification failed: ${message}`, { status: 400 })
   }
 }

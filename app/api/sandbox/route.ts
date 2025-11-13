@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     if (packageJsonFile) {
       try {
         console.log("[v0] Installing dependencies...")
-        const installResult = await sandbox.commands.run("npm install", { timeout: 120 })
+        const installResult = await sandbox.commands.run("npm install", { timeoutMs: 120000 })
         console.log("[v0] Install result:", installResult.exitCode)
         if (installResult.stderr) console.log("[v0] Install stderr:", installResult.stderr)
       } catch (err) {
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
 
       try {
         console.log("[v0] Starting dev server with:", startCommand)
-        sandbox.commands.run(startCommand, { timeout: 30 }).catch((e) => console.log("[v0] Server start error:", e))
+        sandbox.commands.run(startCommand, { timeoutMs: 30000 }).catch((e) => console.log("[v0] Server start error:", e))
       } catch (err) {
         console.error("[v0] Failed to start dev server:", err)
       }

@@ -23,17 +23,8 @@ function isMonthPassed(lastClaim: Date | null): boolean {
   return today >= nextMonth
 }
 
-// Helper to calculate and apply regeneration without resetting timer (only for non-premium)
-async function applyRegeneration(userId: string, isPremium: boolean) {
-  if (isPremium) {
-    return { 
-      credits: UNLIMITED_CREDITS, 
-      secondsUntilNextRegen: 0,
-      record: { isPremium: true },
-      pendingMonthly: 0
-    }
-  }
-
+// Helper to calculate and apply regeneration without resetting timer
+async function applyRegeneration(userId: string) {
   let record = await db
     .select()
     .from(userCredits)
@@ -46,10 +37,27 @@ async function applyRegeneration(userId: string, isPremium: boolean) {
       userId,
       credits: 10,
       lastRegenTime: new Date(),
+      lastClaimedGiftId: null,
       lastMonthlyClaim: null,
       isPremium: false,
     })
-    record = { credits: 10, lastRegenTime: new Date(), lastMonthlyClaim: null, isPremium: false }
+    record = { 
+      userId,
+      credits: 10, 
+      lastRegenTime: new Date(), 
+      lastClaimedGiftId: null,
+      lastMonthlyClaim: null, 
+      isPremium: false 
+    }
+  }
+
+  if (record.isPremium) {
+    return { 
+      credits: UNLIMITED_CREDITS, 
+      secondsUntilNextRegen: 0,
+      record,
+      pendingMonthly: 0
+    }
   }
 
   const nowMs = Date.now()
@@ -90,14 +98,21 @@ async function applyRegeneration(userId: string, isPremium: boolean) {
 
   const secondsUntilNext = Math.ceil(timeLeftMs / 1000)
 
+  // Update record in memory
+  const updatedRecord = {
+    ...record,
+    credits: newCredits,
+    lastRegenTime: new Date(newLastTimeMs),
+  }
+
   // Calculate pending monthly credits
-  const pendingMonthly = isMonthPassed(record.lastMonthlyClaim) ? 10 : 0
+  const pendingMonthly = isMonthPassed(updatedRecord.lastMonthlyClaim) ? 10 : 0
 
   return { 
     credits: newCredits, 
-    lastRegenTime: new Date(newLastTimeMs),
+    lastRegenTime: updatedRecord.lastRegenTime,
     secondsUntilNextRegen: secondsUntilNext,
-    record,
+    record: updatedRecord,
     pendingMonthly
   }
 }
@@ -119,7 +134,7 @@ async function calculatePendingGift(userRecord: any) {
         .select({ total: sum(giftEvents.amount) })
         .from(giftEvents)
         .where(gt(giftEvents.createdAt, lastGiftRecord.createdAt))
-        .then(r => r[0].total ?? 0n)
+        .then(r => r[0].total ?? BigInt(0))
 
       pendingGift = Number(unclaimedSum)
     }
@@ -127,7 +142,7 @@ async function calculatePendingGift(userRecord: any) {
     const totalSum = await db
       .select({ total: sum(giftEvents.amount) })
       .from(giftEvents)
-      .then(r => r[0].total ?? 0n)
+      .then(r => r[0].total ?? BigInt(0))
 
     pendingGift = Number(totalSum)
   }
@@ -141,32 +156,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  let record = await db
-    .select()
-    .from(userCredits)
-    .where(eq(userCredits.userId, userId))
-    .then(r => r[0])
-
-  if (!record) {
-    await db.insert(userCredits).values({
-      userId,
-      credits: 10,
-      lastRegenTime: new Date(),
-      lastMonthlyClaim: null,
-      isPremium: false,
-    })
-    record = { credits: 10, lastRegenTime: new Date(), lastMonthlyClaim: null, isPremium: false }
-  }
-
-  const data = await applyRegeneration(userId, record.isPremium)
-  const pendingGift = record.isPremium ? 0 : await calculatePendingGift(record) // No gifts for premium
+  const data = await applyRegeneration(userId)
+  const pendingGift = data.record.isPremium ? 0 : await calculatePendingGift(data.record) // No gifts for premium
 
   return NextResponse.json({
     credits: data.credits,
     pendingGift,
     pendingMonthly: data.pendingMonthly,
     secondsUntilNextRegen: data.secondsUntilNextRegen,
-    isPremium: record.isPremium, // New: Return status
+    isPremium: data.record.isPremium, // New: Return status
   })
 }
 
@@ -187,10 +185,18 @@ export async function POST(request: NextRequest) {
       userId,
       credits: 10,
       lastRegenTime: new Date(),
+      lastClaimedGiftId: null,
       lastMonthlyClaim: null,
       isPremium: false,
     })
-    record = { credits: 10, lastRegenTime: new Date(), lastMonthlyClaim: null, isPremium: false }
+    record = { 
+      userId,
+      credits: 10, 
+      lastRegenTime: new Date(), 
+      lastClaimedGiftId: null,
+      lastMonthlyClaim: null, 
+      isPremium: false 
+    }
   }
 
   if (record.isPremium) {
@@ -213,7 +219,7 @@ export async function POST(request: NextRequest) {
 
   // Handle claiming gift - only non-premium
   if (body?.claimGift === true) {
-    const data = await applyRegeneration(userId, false)
+    const data = await applyRegeneration(userId)
     const userRecord = data.record
     const pendingGift = await calculatePendingGift(userRecord)
 
@@ -252,7 +258,7 @@ export async function POST(request: NextRequest) {
 
   // Handle claiming monthly credits - only non-premium
   if (body?.claimMonthly === true) {
-    const data = await applyRegeneration(userId, false)
+    const data = await applyRegeneration(userId)
     const userRecord = data.record
     const isAvailable = isMonthPassed(userRecord.lastMonthlyClaim)
 
@@ -278,7 +284,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Default: deduct credit for message send - only non-premium
-  const data = await applyRegeneration(userId, false)
+  const data = await applyRegeneration(userId)
 
   if (data.credits <= 0) {
     return NextResponse.json({ error: 'Insufficient credits' }, { status: 402 })

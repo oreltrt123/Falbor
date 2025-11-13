@@ -64,7 +64,7 @@ export function GithubClone() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-sm font-medium cursor-pointer w-[100%] py-1 p-2 border border-[#44444450] hover:border-[#ff8c001f] rounded-4xl bg-[#272727a6] text-[#e9e9e9] flex items-center gap-2"
+        className="text-sm font-medium cursor-pointer w-full py-1 p-2 border border-[#44444450] hover:border-[#ff8c001f] rounded-4xl bg-[#272727a6] text-[#e9e9e9] flex items-center gap-2"
       >
         <Github className="w-4 h-4" />
         Clone from GitHub
@@ -78,7 +78,7 @@ export function GithubClone() {
               <X className="w-5 h-5" />
             </DialogClose>
             {/* Colorful top section */}
-            <div className="relative bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 h-32 flex items-center justify-center overflow-hidden">
+            <div className="relative bg-gradient-to from-purple-600 via-pink-600 to-blue-600 h-32 flex items-center justify-center overflow-hidden">
               <div className="absolute inset-0 bg-black/20" />
               <Github className="w-16 h-16 text-white drop-shadow-lg relative z-10" />
             </div>
@@ -99,16 +99,15 @@ export function GithubClone() {
                     disabled={isLoading}
                   />
                   <div className="flex items-start gap-2 text-xs text-white/50">
-                    <HelpCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                    <HelpCircle className="w-3 h-3 mt-0.5" />
                     <span className="leading-relaxed">How to get a GitHub repo URL? Right click on a repo &gt; Copy the URL from address bar</span>
                   </div>
                 </div>
                 {error && <p className="text-sm text-red-500 px-1">{error}</p>}
                 <button
                   type="submit"
-                  size="lg"
                   disabled={!url.trim() || isLoading}
-                  className="text-sm font-medium cursor-pointer w-[100%] py-1 p-2 hover:border-[#ff8c001f] rounded-md bg-[#2b2b2b] border border-[#44444450] text-[#e9e9e9] flex items-center gap-2"
+                  className="text-sm font-medium cursor-pointer w-full py-1 p-2 hover:border-[#ff8c001f] rounded-md bg-[#2b2b2b] border border-[#44444450] text-[#e9e9e9] flex items-center gap-2"
                 >
                   <span className="justify-between text-center w-full">
                   {isLoading ? (

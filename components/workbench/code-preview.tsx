@@ -214,7 +214,7 @@ export function CodePreview({ projectId }: CodePreviewProps) {
     return parts
   }
 
-  const isDirty = selectedFile && editedContent !== selectedFile.content
+  const isDirty = selectedFile ? editedContent !== selectedFile.content : false
 
   const editorOptions = useMemo(() => ({
     wordWrap: 'on',

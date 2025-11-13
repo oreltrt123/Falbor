@@ -18,7 +18,7 @@ interface User {
 
 export async function ProjectsList({ userId }: { userId: string }) {
   const sql = neon(process.env.NEON_NEON_DATABASE_URL!)
-  const projects = await sql<Project[]>`SELECT
+  const projects = await sql`SELECT
       p.id,
       p.title,
       p.updated_at,
@@ -30,7 +30,7 @@ export async function ProjectsList({ userId }: { userId: string }) {
     FROM projects p
     WHERE p.user_id = ${userId}
     ORDER BY p.updated_at DESC
-    LIMIT 10`
+    LIMIT 10` as Project[]
 
   if (projects.length === 0) {
     return (

@@ -8,7 +8,21 @@ import { eq, asc } from "drizzle-orm"
 import { SYSTEM_PROMPT } from "@/lib/common/prompts/prompt"
 import { DISCUSS_SYSTEM_PROMPT } from "@/lib/common/prompts/discuss-prompt"
 
-const UI_KEYWORDS = ['ui', 'component', 'design', 'website', 'app', 'interface', 'build site', 'frontend', 'react component', 'todo', 'dashboard', 'form', 'crud'] // Broadened for better triggering
+const UI_KEYWORDS = [
+  "ui",
+  "component",
+  "design",
+  "website",
+  "app",
+  "interface",
+  "build site",
+  "frontend",
+  "react component",
+  "todo",
+  "dashboard",
+  "form",
+  "crud",
+] // Broadened for better triggering
 
 export async function POST(request: Request) {
   const { userId } = await auth()
@@ -24,7 +38,15 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400 })
   }
 
-  const { projectId: incomingProjectId, message, imageData, uploadedFiles, model = "gemini", generateImages, discussMode = false } = body
+  const {
+    projectId: incomingProjectId,
+    message,
+    imageData,
+    uploadedFiles,
+    model = "gemini",
+    generateImages,
+    discussMode = false,
+  } = body
 
   if (!message) {
     return new Response(JSON.stringify({ error: "Missing message" }), { status: 400 })
@@ -35,11 +57,14 @@ export async function POST(request: Request) {
 
   if (!projectId) {
     isNewProject = true
-    const [newProject] = await db.insert(projects).values({
-      userId,
-      title: message.length > 50 ? `${message.substring(0, 47)}...` : message,
-      selectedModel: model,
-    }).returning({ id: projects.id })
+    const [newProject] = await db
+      .insert(projects)
+      .values({
+        userId,
+        title: message.length > 50 ? `${message.substring(0, 47)}...` : message,
+        selectedModel: model,
+      })
+      .returning({ id: projects.id })
     projectId = newProject.id
 
     // Insert user message for new project
@@ -84,7 +109,8 @@ export async function POST(request: Request) {
 
   let history: any[]
   try {
-    history = await db.select().from(messages).where(eq(messages.projectId, projectId)).orderBy(asc(messages.createdAt)) ?? []
+    history =
+      (await db.select().from(messages).where(eq(messages.projectId, projectId)).orderBy(asc(messages.createdAt))) ?? []
   } catch (e) {
     console.error("[API/Chat] History fetch error:", e)
     return new Response(JSON.stringify({ error: "Database error" }), { status: 500 })
@@ -170,19 +196,28 @@ async function handleGeminiRequest(
   console.log(`[Gemini] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
 
   // 21st.dev integration via prompt (no external call needed)
-  const isUIRequest = !discussMode && UI_KEYWORDS.some(keyword => message.toLowerCase().includes(keyword))
+  const isUIRequest = !discussMode && UI_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
   console.log(`[Gemini] UI request detected: ${isUIRequest} for message: ${message.substring(0, 50)}...`)
-  const uiContext = isUIRequest 
+  const uiContext = isUIRequest
     ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
     : ""
 
   const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext
 
   const conversationHistory = [
-    { role: "user", parts: [{ text: systemPrompt + `\n\nContext from web search on "${searchQuery}":\n${searchResult.results}` }] },
+    {
+      role: "user",
+      parts: [{ text: systemPrompt + `\n\nContext from web search on "${searchQuery}":\n${searchResult.results}` }],
+    },
     {
       role: "model",
-      parts: [{ text: discussMode ? "Understood. I'll engage in conversation without generating code." : "Understood. I'll use the provided web search context and format code blocks properly with file paths." }],
+      parts: [
+        {
+          text: discussMode
+            ? "Understood. I'll engage in conversation without generating code."
+            : "Understood. I'll use the provided web search context and format code blocks properly with file paths.",
+        },
+      ],
     },
     ...history.slice(0, -1).map((msg) => ({
       role: msg.role === "user" ? "user" : "model",
@@ -218,7 +253,6 @@ async function handleGeminiRequest(
 
   const encoder = new TextEncoder()
   let fullResponse = ""
-  const thinkingContent = ""
 
   return new ReadableStream({
     async start(controller) {
@@ -229,6 +263,7 @@ async function handleGeminiRequest(
           const text = chunk.text()
           fullResponse += text
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
+          console.log("[Gemini] Chunk sent, length:", text.length)
         }
 
         console.log(`[Gemini] Extracted code blocks: ${discussMode ? 0 : extractCodeBlocks(fullResponse).length}`)
@@ -237,7 +272,7 @@ async function handleGeminiRequest(
           projectId,
           fullResponse,
           [searchResult],
-          thinkingContent,
+          "", // thinkingContent is empty for Gemini
           controller,
           encoder,
           uploadedFiles,
@@ -261,9 +296,18 @@ async function handleGeminiRequest(
   })
 }
 
-async function handleClaudeRequest(history: any[], message: string, imageData: any, projectId: string, userId: string, discussMode: boolean) {
+async function handleClaudeRequest(
+  history: any[],
+  message: string,
+  imageData: any,
+  projectId: string,
+  userId: string,
+  discussMode: boolean,
+) {
   if (!process.env.ANTHROPIC_API_KEY) {
-    return createErrorStream("Claude API key not configured. Please add ANTHROPIC_API_KEY to your environment variables.")
+    return createErrorStream(
+      "Claude API key not configured. Please add ANTHROPIC_API_KEY to your environment variables.",
+    )
   }
 
   let anthropic: any
@@ -279,13 +323,15 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
     const searchResult = await doSearch(searchQuery)
     console.log(`[Claude] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
 
-    const isUIRequest = !discussMode && UI_KEYWORDS.some(keyword => message.toLowerCase().includes(keyword))
+    const isUIRequest = !discussMode && UI_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
     console.log(`[Claude] UI request detected: ${isUIRequest}`)
-    const uiContext = isUIRequest 
+    const uiContext = isUIRequest
       ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
       : ""
 
-    const systemPrompt = (discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext) + `\n\nContext from web search: ${searchResult.results}`
+    const systemPrompt =
+      (discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext) +
+      `\n\nContext from web search: ${searchResult.results}`
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role,
@@ -317,7 +363,17 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
 
           console.log(`[Claude] Extracted code blocks: ${discussMode ? 0 : extractCodeBlocks(fullResponse).length}`)
 
-          await saveAssistantMessage(projectId, fullResponse, [searchResult], thinkingContent, controller, encoder, undefined, false, discussMode)
+          await saveAssistantMessage(
+            projectId,
+            fullResponse,
+            [searchResult],
+            thinkingContent,
+            controller,
+            encoder,
+            undefined,
+            false,
+            discussMode,
+          )
         } catch (error) {
           console.error("[Claude] Stream error:", error)
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`))
@@ -333,18 +389,25 @@ async function handleClaudeRequest(history: any[], message: string, imageData: a
   }
 }
 
-async function handleGPTRequest(history: any[], message: string, imageData: any, projectId: string, userId: string, discussMode: boolean) {
+async function handleGPTRequest(
+  history: any[],
+  message: string,
+  imageData: any,
+  projectId: string,
+  userId: string,
+  discussMode: boolean,
+) {
   if (!process.env.OPENAI_API_KEY) {
     return createErrorStream("OpenAI API key not configured. Please add OPENAI_API_KEY to your environment variables.")
   }
 
-  let openai: any;
+  let openai: any
   try {
-    const OpenAI = (await import('openai')).default;
-    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const OpenAI = (await import("openai")).default
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   } catch (e) {
-    console.error("[GPT] SDK load error:", e);
-    return createErrorStream(`Failed to load OpenAI SDK: ${e}`);
+    console.error("[GPT] SDK load error:", e)
+    return createErrorStream(`Failed to load OpenAI SDK: ${e}`)
   }
 
   try {
@@ -352,13 +415,15 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
     const searchResult = await doSearch(searchQuery)
     console.log(`[GPT] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
 
-    const isUIRequest = !discussMode && UI_KEYWORDS.some(keyword => message.toLowerCase().includes(keyword))
+    const isUIRequest = !discussMode && UI_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
     console.log(`[GPT] UI request detected: ${isUIRequest}`)
-    const uiContext = isUIRequest 
+    const uiContext = isUIRequest
       ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
       : ""
 
-    const systemPrompt = (discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext) + `\n\nContext from web search: ${searchResult.results}`
+    const systemPrompt =
+      (discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext) +
+      `\n\nContext from web search: ${searchResult.results}`
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role,
@@ -393,7 +458,17 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
 
           console.log(`[GPT] Extracted code blocks: ${discussMode ? 0 : extractCodeBlocks(fullResponse).length}`)
 
-          await saveAssistantMessage(projectId, fullResponse, [searchResult], thinkingContent, controller, encoder, undefined, false, discussMode)
+          await saveAssistantMessage(
+            projectId,
+            fullResponse,
+            [searchResult],
+            thinkingContent,
+            controller,
+            encoder,
+            undefined,
+            false,
+            discussMode,
+          )
         } catch (error) {
           console.error("[GPT] Stream error:", error)
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`))
@@ -409,9 +484,17 @@ async function handleGPTRequest(history: any[], message: string, imageData: any,
   }
 }
 
-async function handleV0Request(history: any[], message: string, projectId: string, userId: string, discussMode: boolean) {
+async function handleV0Request(
+  history: any[],
+  message: string,
+  projectId: string,
+  userId: string,
+  discussMode: boolean,
+) {
   if (discussMode) {
-    return createErrorStream("Discuss mode is not supported with v0 (code generation model). Please switch to another model.")
+    return createErrorStream(
+      "Discuss mode is not supported with v0 (code generation model). Please switch to another model.",
+    )
   }
   return createErrorStream("v0 integration coming soon. This will use Vercel's v0 API for enhanced code generation.")
 }
@@ -439,7 +522,7 @@ async function saveAssistantMessage(
   encoder: any,
   uploadedFiles?: any[],
   generateImages?: boolean,
-  discussMode: boolean = false,
+  discussMode = false,
 ) {
   try {
     console.log("[Save] Extracting code blocks from response...")

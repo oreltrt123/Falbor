@@ -26,7 +26,7 @@ interface CodeTabProps {
   handleSave: () => void
   projectId: string
   fetchFiles: () => void
-  scrollRef: React.RefObject<HTMLDivElement>
+  scrollRef: React.RefObject<HTMLDivElement | null>
   monacoRef: React.RefObject<any>
   editorOptions: any
   loading?: boolean // For no files message
@@ -74,7 +74,7 @@ export function CodeTab({
           <FileSidebar
             files={files}
             onFileSelect={handleFileSelect}
-            selectedPath={selectedFile?.path}
+            selectedPath={selectedFile?.path ?? null}
             projectId={projectId}
             onFilesChange={fetchFiles}
           />
