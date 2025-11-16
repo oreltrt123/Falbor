@@ -4,12 +4,6 @@ import { db } from '@/config/db'
 import { eq } from 'drizzle-orm'
 import { userCredits } from '@/config/schema'
 
-if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
-  throw new Error('Missing Stripe env vars')
-}
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
-
 // Helper to check if a month has passed (duplicated for independence)
 function isMonthPassed(lastClaim: Date | null): boolean {
   if (!lastClaim) return true
@@ -22,6 +16,15 @@ function isMonthPassed(lastClaim: Date | null): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  // Move env checks and init inside handler (runtime only)
+  if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
+    console.error('Missing Stripe env vars at runtime')
+    return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
+  }
+
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+
   const body = await request.text()
   const signature = request.headers.get('stripe-signature')!
 
