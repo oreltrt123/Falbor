@@ -1,4 +1,12 @@
-import { auth, clerkClient } from '@clerk/nextjs/server'
+// app/api/subscribe/route.ts (App Router format; adjust to /pages/api/subscribe.ts if using Pages Router)
+// Full updated route: Reverted to direct 'payment_intent' expand for 2025-10-29.clover (direct prop exists).
+// - Expand 'latest_invoice.payment_intent' (1 level deep, within limit).
+// - Access latestInvoice.payment_intent directly.
+// - Enhanced logging: Full paths for debug.
+// - Ensures client_secret always for amount_due >0; Setup for $0.
+// - No DB update here—only in /confirm.
+
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { db } from '@/config/db'
 import { eq } from 'drizzle-orm'
 import { userCredits } from '@/config/schema'
@@ -9,9 +17,20 @@ if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error('STRIPE_SECRET_KEY env var missing - add to .env.local')
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: '2025-10-29.clover', // Latest stable (Nov 2025) - direct payment_intent on Invoice
+})
 
 export async function POST(request: NextRequest) {
+  // Env debug log (remove in prod)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('=== SUBSCRIBE API ENV DEBUG ===')
+    console.log('CLERK_SECRET_KEY loaded?', !!process.env.CLERK_SECRET_KEY ? `Yes (prefix: ${process.env.CLERK_SECRET_KEY?.substring(0, 10)}...)` : '❌ MISSING - Check .env.local!')
+    console.log('STRIPE_SECRET_KEY loaded?', !!process.env.STRIPE_SECRET_KEY ? 'Yes' : '❌ MISSING')
+    console.log('STRIPE_PRICE_ID:', process.env.STRIPE_PRICE_ID || '❌ MISSING')
+    console.log('=== END DEBUG ===')
+  }
+
   const { userId } = await auth()
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -23,13 +42,26 @@ export async function POST(request: NextRequest) {
     // --- Fetch Clerk User ---
     let clerkUser
     try {
-      const clerk = await clerkClient() // Clerk v4 fix
-      clerkUser = await clerk.users.getUser(userId)
-    } catch (clerkErr) {
-      console.error('Clerk fetch error:', clerkErr)
+      console.log('Attempting currentUser fetch for user:', userId)
+      clerkUser = await currentUser()
+      console.log('currentUser SUCCESS - user email:', clerkUser?.emailAddresses[0]?.emailAddress)
+    } catch (clerkErr: any) {
+      console.error('currentUser FULL ERROR:', {
+        message: clerkErr.message,
+        code: clerkErr.code,
+        status: clerkErr.statusCode,
+        userId
+      })
       return NextResponse.json(
-        { error: 'Clerk user fetch failed - check CLERK_SECRET_KEY' },
+        { error: `Clerk user fetch failed: ${clerkErr.message || 'Invalid CLERK_SECRET_KEY - verify in dashboard'}` },
         { status: 500 }
+      )
+    }
+
+    if (!clerkUser) {
+      return NextResponse.json(
+        { error: 'No authenticated user found - re-login required' },
+        { status: 401 }
       )
     }
 
@@ -42,12 +74,12 @@ export async function POST(request: NextRequest) {
     }
 
     // --- Get/Create Stripe Customer ---
-    let record = await db
+    const records = await db
       .select()
       .from(userCredits)
       .where(eq(userCredits.userId, userId))
-      .then(r => r[0])
 
+    let record = records[0]
     let customerId = record?.stripeCustomerId
     let customer
 
@@ -86,40 +118,97 @@ export async function POST(request: NextRequest) {
     const PRICE_ID = process.env.STRIPE_PRICE_ID
     if (!PRICE_ID) {
       return NextResponse.json(
-        { error: 'STRIPE_PRICE_ID missing in .env.local' },
+        { error: 'STRIPE_PRICE_ID missing in .env.local - Create $15/mo Price in Stripe dashboard' },
         { status: 500 }
       )
     }
 
-    // --- Create Subscription ---
+    // --- Create Subscription (with direct expand for this API version) ---
     const subscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: PRICE_ID }],
       payment_behavior: 'default_incomplete',
-      expand: ['latest_invoice.payment_intent'],
+      collection_method: 'charge_automatically', // Ensures PI for due amounts
+      payment_settings: { save_default_payment_method: 'on_subscription' },
+      expand: ['latest_invoice.payment_intent'], // FIXED: Direct expand (1 level, within limit)
     })
 
-    // --- Extract PaymentIntent Client Secret (TypeScript-proof) ---
-    const latestInvoice = subscription.latest_invoice
+    console.log('Created subscription:', subscription.id, 'Status:', subscription.status)
+
+    // --- Extract or Create Client Secret ---
+    const latestInvoice = subscription.latest_invoice as Stripe.Invoice
     let clientSecret: string | null = null
+    let intentType: 'payment' | 'setup' = 'payment'
 
-    if (
-      latestInvoice &&
-      typeof latestInvoice === 'object' &&
-      'payment_intent' in latestInvoice
-    ) {
-      const paymentIntent = latestInvoice.payment_intent as Stripe.PaymentIntent
+    // FIXED: Use direct path for payment_intent (exists in 2025-10-29.clover)
+    const paymentIntent = (latestInvoice as any).payment_intent as Stripe.PaymentIntent | null
 
-      if (paymentIntent && typeof paymentIntent === 'object') {
-        clientSecret = paymentIntent.client_secret ?? null
-      }
+    console.log('Latest Invoice Debug:', {
+      id: latestInvoice?.id,
+      status: latestInvoice?.status,
+      amount_due: latestInvoice?.amount_due,
+      currency: latestInvoice?.currency,
+      payment_intent_id: paymentIntent?.id || 'null', // FIXED: Direct access
+    })
+
+    if (paymentIntent && paymentIntent.client_secret) {
+      // Non-trial: Use PaymentIntent
+      clientSecret = paymentIntent.client_secret
+      console.log('Using PaymentIntent client secret for charge')
+    } else if (latestInvoice?.amount_due === 0 || subscription.status === 'trialing') {
+      // Trial/$0: Create SetupIntent
+      const setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        usage: 'off_session',
+        payment_method_types: ['card'],
+      })
+      clientSecret = setupIntent.client_secret!
+      intentType = 'setup'
+      console.log('Created SetupIntent for trial card collection')
+    } else if (latestInvoice?.amount_due > 0 && latestInvoice?.id) {
+      // Fallback: Manually create PaymentIntent for the invoice
+      console.log('Fallback: Creating standalone PaymentIntent for invoice amount')
+      const pi = await stripe.paymentIntents.create({
+        amount: latestInvoice.amount_due,
+        currency: latestInvoice.currency || 'usd',
+        customer: customerId,
+        payment_method_types: ['card'],
+        metadata: { 
+          invoice: latestInvoice.id,
+          subscription: subscription.id,
+        },
+        setup_future_usage: 'off_session', // For recurring
+      })
+      clientSecret = pi.client_secret!
+      intentType = 'payment'
+      console.log('Fallback PaymentIntent created:', pi.id, 'Amount:', pi.amount)
+    } else {
+      console.warn('No valid invoice or amount - check Price ID')
+      return NextResponse.json(
+        { 
+          error: 'Invalid subscription config - verify Price ID and amount in Stripe dashboard.',
+          subscriptionId: subscription.id 
+        },
+        { status: 400 }
+      )
     }
 
-    console.log('Created subscription:', subscription.id, 'Client secret:', clientSecret)
+    console.log('Intent type:', intentType, 'Client secret present:', !!clientSecret)
+
+    if (!clientSecret) {
+      return NextResponse.json(
+        { error: 'Failed to generate payment setup' },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({
       subscriptionId: subscription.id,
       client_secret: clientSecret,
+      intentType,
+      requiresPayment: !!clientSecret,
+      isTrial: latestInvoice?.amount_due === 0,
+      invoiceId: latestInvoice?.id, // For /confirm
     })
   } catch (error: any) {
     console.error(

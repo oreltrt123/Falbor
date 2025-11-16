@@ -3,12 +3,14 @@ import path from "path";
 
 // Absolute paths to your Markdown files
 const instructionsPath = path.join(process.cwd(), "lib/common/md/instructions.md");
+const Important = path.join(process.cwd(), "lib/common/md/falbor-important-files.md");
 const falborPath = path.join(process.cwd(), "lib/common/md/falbor.md");
 const falborToolsPath = path.join(process.cwd(), "lib/common/md/falbor-tools.md");
 
 // Combine their contents into one system prompt
 export const SYSTEM_PROMPT = `
 ${fs.readFileSync(instructionsPath, "utf8")}
+${fs.readFileSync(Important, "utf8")}
 ${fs.readFileSync(falborPath, "utf8")}
 ${fs.readFileSync(falborToolsPath, "utf8")}
 `;

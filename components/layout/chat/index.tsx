@@ -71,6 +71,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
   const router = useRouter()
   const { user, isLoaded } = useUser()
 
@@ -212,7 +213,15 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!message.trim() || isLoading) return
+    if (isLoading) {
+      // Abort the ongoing request
+      abortControllerRef.current?.abort()
+      abortControllerRef.current = null
+      setIsLoading(false)
+      return
+    }
+
+    if (!message.trim()) return
 
     const currentOption = modelOptions[selectedModel]
     if (currentOption?.soon) {
@@ -290,6 +299,8 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
         console.log("[v0] Sending message to API with model:", selectedModel)
 
+        abortControllerRef.current = new AbortController()
+
         try {
           const res = await fetch("/api/chat", {
             method: "POST",
@@ -302,6 +313,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               discussMode: isDiscussMode,
               isAutomated, // New: Pass flag
             }),
+            signal: abortControllerRef.current.signal,
           })
 
           if (!res.ok) {
@@ -384,10 +396,17 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             }
           }
         } catch (fetchError) {
-          console.error("[v0] Fetch error:", fetchError)
-          alert(`Network error: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`)
+          if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+            console.log("[v0] Request aborted by user")
+          } else {
+            console.error("[v0] Fetch error:", fetchError)
+            alert(`Network error: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`)
+          }
+        } finally {
+          abortControllerRef.current = null
         }
       } else if (projectId) {
+        abortControllerRef.current = new AbortController()
         await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -399,7 +418,9 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             discussMode: isDiscussMode,
             isAutomated,
           }),
+          signal: abortControllerRef.current.signal,
         })
+        abortControllerRef.current = null
       } else {
         const res = await fetch("/api/projects", {
           method: "POST",
@@ -634,9 +655,13 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               type="submit"
               size="icon"
               className="h-7 w-7 p-1.5 bg-[#2f2f30]"
-              disabled={!message.trim() || isLoading || !isAuthenticated || !!modelOptions[selectedModel]?.soon}
+              disabled={!isLoading && (!message.trim() || !isAuthenticated || !!modelOptions[selectedModel]?.soon)}
             >
-              <img width={16} height={16} src="/mouse-cursor.png" alt="" />
+              {isLoading ? (
+                <Loader className="w-4 h-4 animate-spin text-white" />
+              ) : (
+                <img width={16} height={16} src="/mouse-cursor.png" alt="" />
+              )}
             </Button>
           )}
         </div>
