@@ -33,7 +33,7 @@ export default async function ChatPage({
     .orderBy(asc(messages.createdAt))
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#161616]">
+    <div className="min-h-screen flex flex-col bg-[#f1f1f1c7]">
       {/* <Navbar /> */}
       <ChatInterface project={project} initialMessages={projectMessages} />
     </div>

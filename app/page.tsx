@@ -22,12 +22,19 @@ export default async function HomePage() {
                 <Globe className="absolute inset-0 w-full h-full opacity-30 mix-blend-soft-light pointer-events-none" />
               </div>
             </div> */}
-        <main className="flex flex-1 flex-col items-center justify-center px-4 mt-[-130px] w-full">
-          <div className="w-full flex flex-col items-center space-y-8 relative z-10">
+        <main 
+          className="flex flex-1 flex-col items-center justify-center px-4 w-full"
+          style={{
+           backgroundImage: `url("/bg/bg.png")`,
+           backgroundRepeat: "no-repeat",
+           backgroundSize: "cover",
+           backgroundPosition: "center",
+           }}>
+          <div className="w-full flex flex-col items-center space-y-8 mt-[-140px] ml-5 relative z-10">
             {/* Rotating globe background behind inputs */}
 
             {/* Main content area */}
-            <div className="w-full flex flex-col items-center space-y-3 z-10">
+            <div className="w-full flex flex-col mt-[-140px] items-center space-y-3 z-10">
               <div className="p-2 rounded-4xl">
                 <h1 className="text-3xl font-sans font-light tracking-tight text-white text-center">
                   Create anything, anywhere automatically.
@@ -39,7 +46,7 @@ export default async function HomePage() {
 
               {/* Input Area (replaces separate ChatInput and GithubClone) */}
               <div className="w-full flex justify-center">
-                <div className="w-[55%] sm:w-[45%] md:w-[35%] lg:w-[30%]">
+                <div className="w-full sm:w-[55%] md:w-[45%] lg:w-[35%] xl:w-[30%]">
                   <InputArea isAuthenticated={!!userId} />
                 </div>
               </div>

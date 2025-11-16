@@ -75,13 +75,28 @@ export function Navbar() {
     <nav className=" z-50 fixed w-full">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link href="/" className="text-xl font-sans font-light text-white absolute left-8">
-          <img width={140} className="relative top-[-1px]" src="/logo.png" alt="Logo" />
+          <img width={140} className="relative top-[-1px]" src="/logo_light.png" alt="Logo" />
         </Link>
 
 
         <div className="flex items-center gap-4">
           {user ? (
-            <div className="relative top-1">
+            <div className="absolute right-3 top-1">
+              {/* Credits display */}
+              {creditsData && (
+                <button className="text-black/90 text-[12px] mb-1 p-1 px-2.5 relative top-[-7px]">
+                  <span className="flex items-center gap-2 bg-[#e4e4e4] rounded-md px-2 py-1">
+                    <img
+                    src="/icons/credit-card.png"
+                    alt="Credits icon"
+                    width={16}
+                    height={16}
+                    className="opacity-80"
+                    />
+                    <span>{creditsData.credits} credits remaining</span>
+                  </span>
+                </button>
+              )}
               {/* Profile button */}
               <button
                 onClick={() => setOpen(!open)}
@@ -93,21 +108,6 @@ export function Navbar() {
                   className="w-full h-full object-cover"
                 />
               </button>
-              {/* Credits display */}
-              {creditsData && (
-                <button className="text-white/90 text-[12px] mb-1 p-1 px-2.5 relative top-[-7px]">
-                  <span className="flex items-center gap-2 border border-[#272727] rounded-md px-2 py-1">
-                    <img
-                      src="/icons/coin.png"
-                      alt="Credits icon"
-                      width={16}
-                      height={16}
-                      className="opacity-80"
-                    />
-                    <span>{creditsData.credits} credits remaining</span>
-                  </span>
-                </button>
-              )}
 
               {/* Dropdown */}
               <div

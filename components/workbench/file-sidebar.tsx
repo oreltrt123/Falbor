@@ -12,9 +12,9 @@ interface FileSidebarProps {
 export function FileSidebar({ files, onFileSelect, selectedPath, projectId, onFilesChange }: FileSidebarProps) {
   return (
     <>
-      <div className="p-2 bg-[#1b1b1b]">
+      {/* <div className="p-2 bg-[#1b1b1b]">
         <p className="text-xs font-medium text-white">FILES ({files.length})</p>
-      </div>
+      </div> */}
       <FileTree
         files={files}
         onFileSelect={onFileSelect}

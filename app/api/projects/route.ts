@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { message, model = "gemini" } = await request.json()
+    const { message, model = "gemini", isAutomated = false } = await request.json() // New: isAutomated
 
     const [project] = await db
       .insert(projects)
@@ -37,6 +37,7 @@ export async function POST(request: Request) {
         userId,
         title: message.slice(0, 50),
         selectedModel: model,
+        isAutomated, // New
       })
       .returning()
 
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       projectId: project.id,
       role: "user",
       content: message,
+      isAutomated, // New
     })
 
     // Removed hardcoded assistant message; let /api/chat generate the real AI response

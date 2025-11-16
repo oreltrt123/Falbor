@@ -4,7 +4,7 @@ import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
 import { MessageList } from "@/components/message/message-list"
-import { ChatInput } from "@/components/workbench/chat-input"
+import { ChatInput } from "@/components/layout/chat"
 import { CodePreview } from "@/components/workbench/code-preview"
 import type { Project, Message as SchemaMessage } from "@/config/schema"
 import { Navbar } from "@/components/chat/navbar"
@@ -16,9 +16,10 @@ interface StrictMessage extends Omit<SchemaMessage, "role"> {
 interface ChatInterfaceProps {
   project: Project
   initialMessages: SchemaMessage[]
+  initialUserMessage?: string
 }
 
-export function ChatInterface({ project, initialMessages }: ChatInterfaceProps) {
+export function ChatInterface({ project, initialMessages, initialUserMessage }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<StrictMessage[]>([])
   const [windowWidth, setWindowWidth] = useState(0)
   const [isResizingState, setIsResizingState] = useState(false)
@@ -58,6 +59,25 @@ export function ChatInterface({ project, initialMessages }: ChatInterfaceProps) 
   }, [initialMessages])
 
   useEffect(() => {
+    if (initialUserMessage && !hasAutoTriggered.current && project.id) {
+      hasAutoTriggered.current = true
+      const userMessage: StrictMessage = {
+        id: `initial-user-${Date.now()}`,
+        projectId: project.id,
+        role: "user",
+        content: initialUserMessage,
+        hasArtifact: false,
+        createdAt: new Date(),
+        thinking: null,
+        searchQueries: null,
+        isAutomated: false,
+      }
+      setMessages([userMessage])
+      handleAutoGenerate(initialUserMessage)
+    }
+  }, [initialUserMessage, project.id])
+
+  useEffect(() => {
     if (!hasAutoTriggered.current && messages.length > 0 && !isStreaming) {
       const lastMessage = messages[messages.length - 1]
       const assistantMessages = messages.filter((m) => m.role === "assistant")
@@ -66,7 +86,7 @@ export function ChatInterface({ project, initialMessages }: ChatInterfaceProps) 
         handleAutoGenerate(lastMessage.content)
       }
     }
-  }, [])
+  }, [messages])
 
   const handleAutoGenerate = async (userContent: string) => {
     setIsStreaming(true)
@@ -81,6 +101,7 @@ export function ChatInterface({ project, initialMessages }: ChatInterfaceProps) 
       createdAt: new Date(),
       thinking: null,
       searchQueries: null,
+      isAutomated: true,
     }
     setMessages((prev) => [...prev, tempAssistant])
 
@@ -167,7 +188,7 @@ export function ChatInterface({ project, initialMessages }: ChatInterfaceProps) 
 
       if (safeMessage.id.startsWith("temp-")) {
         const existingIndex = validPrev.findIndex((m) => m.id === safeMessage.id)
-        if (existingIndex !== -1) {
+        if (existingIndex !== - 1) {
           // Update existing temp message with new content
           const newMessages = [...validPrev]
           newMessages[existingIndex] = safeMessage
@@ -223,7 +244,7 @@ export function ChatInterface({ project, initialMessages }: ChatInterfaceProps) 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Chat Panel */}
         <div
-          className={`flex flex-col bg-[#161616] overflow-hidden ${isResizingState ? "transition-none" : "transition-all duration-200"}`}
+          className={`flex flex-col bg-[#f1f1f1c7] overflow-hidden ${isResizingState ? "transition-none" : "transition-all duration-200"}`}
           style={{ width: leftWidth }}
         >
           <div
@@ -260,7 +281,7 @@ export function ChatInterface({ project, initialMessages }: ChatInterfaceProps) 
         </div>
 
         {/* Vertical Resizable Divider */}
-        <div onMouseDown={handleMouseDown} className="w-1 cursor-col-resize hover:bg-[#1b1b1b] py-4 mt-14" />
+        <div onMouseDown={handleMouseDown} className="w-1 cursor-col-resize hover:bg-[#e7e7e7] py-4 mt-14" />
 
         {/* Right Code Panel */}
         <div className="flex-1 px-2  py-4 mt-10 overflow-hidden">

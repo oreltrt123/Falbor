@@ -122,15 +122,20 @@ function TreeNode({
     onContextMenu(e, node)
   }
 
+  const indent = `${level * 12 + 8}px`
+
   return (
     <div>
       <div
         className={cn(
-          "flex items-center gap-1 px-2 py-1 hover:bg-[#2e2e2e38] cursor-pointer text-sm relative group",
-          selectedPath === node.path && "bg-[#122a3a38] hover:bg-[#122a3a38]",
+          "flex items-center gap-1 pl-0 px-1 pr-2 py-[3px] mb-1 hover:bg-[#e4e4e4] cursor-pointer text-[13px] relative group rounded-sm",
+          selectedPath === node.path && "font-bold hover:bg-white",
           node.isLocked && "opacity-50",
         )}
-        style={{ paddingLeft: `${level * 12 + 8}px` }}
+        style={{ 
+          marginLeft: indent,
+          width: `calc(100% - ${indent})`
+        }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       >
@@ -138,21 +143,21 @@ function TreeNode({
           <>
             {isOpen ? (
               <>
-                <ChevronDown className="w-4 h-4 text-white/75" />
+                <ChevronDown className="w-4 h-4 text-black" />
               </>
             ) : (
               <>
-                <ChevronRight className="w-4 h-4 text-white/75" />
+                <ChevronRight className="w-4 h-4 text-black" />
               </>
             )}
           </>
         ) : (
           <>
             <div className="w-4" />
-            <File className="w-4 h-4 text-white/75" />
+            <File className="w-4 h-4 text-black" />
           </>
         )}
-        <span className="truncate text-white/75 flex-1">{node.name}</span>
+        <span className="truncate text-black flex-1">{node.name}</span>
         {node.type === "file" && ((node.additions || 0) > 0 || (node.deletions || 0) > 0) && (
           <div className="flex items-center gap-1 text-[10px] ml-auto">
             {(node.additions || 0) > 0 && <span className="text-green-500">+{node.additions}</span>}
@@ -311,7 +316,7 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
   }
 
   return (
-    <div className="text-sm relative">
+    <div className="text-sm relative p-2">
       {tree.map((node, index) => (
         <TreeNode
           key={index}
@@ -326,7 +331,7 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
       {contextMenu.show && contextMenu.node && (
         <div
           ref={contextMenuRef}
-          className="fixed bg-[#2a2a2a] border border-[#3b3b3f] rounded-md shadow-lg py-1 z-50 min-w-[180px]"
+          className="fixed bg-[#ffffff] border border-[#e0e0e0c9] rounded-md py-1 z-50 min-w-[180px] p-1"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
@@ -340,7 +345,7 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
               })
               setContextMenu({ show: false, x: 0, y: 0, node: null })
             }}
-            className="w-full text-left px-3 py-2 text-sm text-white hover:bg-[#3b3b3f] flex items-center gap-2"
+            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4]`}
           >
             <Plus className="w-4 h-4" />
             New File
@@ -356,7 +361,7 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
               })
               setContextMenu({ show: false, x: 0, y: 0, node: null })
             }}
-            className="w-full text-left px-3 py-2 text-sm text-white hover:bg-[#3b3b3f] flex items-center gap-2"
+            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4]`}
           >
             <Folder className="w-4 h-4" />
             New Folder
@@ -366,21 +371,21 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
               setInputValue(contextMenu.node?.name || "")
               setShowInput({ type: "rename", parentPath: contextMenu.node?.path || "" })
             }}
-            className="w-full text-left px-3 py-2 text-sm text-white hover:bg-[#3b3b3f] flex items-center gap-2"
+            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4]`}
           >
             <Edit className="w-4 h-4" />
             Rename
           </button>
           <button
             onClick={handleToggleLock}
-            className="w-full text-left px-3 py-2 text-sm text-white hover:bg-[#3b3b3f] flex items-center gap-2"
+            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4]`}
           >
             {contextMenu.node.isLocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
             {contextMenu.node.isLocked ? "Unlock" : "Lock"}
           </button>
           <button
             onClick={handleDelete}
-            className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-[#3b3b3f] flex items-center gap-2"
+            className={`w-full flex text-red-700 items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4]`}
           >
             <Trash className="w-4 h-4" />
             Delete

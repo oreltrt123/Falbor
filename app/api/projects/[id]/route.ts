@@ -1,5 +1,4 @@
-// api/projects/id 
-// No changes needed - this handles model updates independently of the preview/sandbox.
+// api/projects/[id]/route.ts
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/config/db"
 import { projects } from "@/config/schema"

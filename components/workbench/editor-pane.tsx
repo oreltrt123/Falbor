@@ -32,8 +32,8 @@ export function EditorPane({
     <div className="flex-1 flex flex-col overflow-hidden">
       {selectedFile ? (
         <>
-          <div className="p-2 bg-[#1b1b1b] border-b border-[#4444442d] flex items-center justify-between">
-            <p className="text-xs text-white font-mono">{selectedFile.path}</p>
+          <div className="p-1.5 bg-[#ffffff] border-b border-[#4444442d] flex items-center justify-between">
+            <p className="text-xs text-black font-mono">{selectedFile.path}</p>
             <button
               onClick={handleSave}
               disabled={!isDirty}
@@ -60,7 +60,7 @@ export function EditorPane({
               defaultLanguage={selectedFile.language}
               value={editedContent}
               onChange={(value) => setEditedContent(value || '')}
-              theme="vs-dark"
+              theme="vs-light"
               options={editorOptions}
             />
           </div>

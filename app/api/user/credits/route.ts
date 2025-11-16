@@ -1,4 +1,5 @@
 import { auth } from '@clerk/nextjs/server'
+import { clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/config/db'
 import { eq, sum, gt, desc } from 'drizzle-orm'
 import { userCredits, giftEvents } from '@/config/schema'
@@ -9,7 +10,6 @@ export const dynamic = 'force-dynamic'
 const REGEN_INTERVAL_MINUTES = 400 // How much time the user need to wait
 const CREDITS_PER_INTERVAL = 3 // How much credits the user need to get
 const INTERVAL_MS = REGEN_INTERVAL_MINUTES * 60 * 1000 // 60000 ms for 1 min
-const UNLIMITED_CREDITS = 9999 // High number for premium display
 
 // Helper to check if a month has passed since last monthly claim
 function isMonthPassed(lastClaim: Date | null): boolean {
@@ -40,6 +40,8 @@ async function applyRegeneration(userId: string) {
       lastClaimedGiftId: null,
       lastMonthlyClaim: null,
       isPremium: false,
+      lastPremiumDispense: null,
+      stripeCustomerId: null,
     })
     record = { 
       userId,
@@ -47,73 +49,110 @@ async function applyRegeneration(userId: string) {
       lastRegenTime: new Date(), 
       lastClaimedGiftId: null,
       lastMonthlyClaim: null, 
-      isPremium: false 
+      isPremium: false,
+      lastPremiumDispense: null,
+      stripeCustomerId: null,
     }
   }
+
+  const now = new Date()
+  const nowMs = now.getTime()
 
   if (record.isPremium) {
-    return { 
-      credits: UNLIMITED_CREDITS, 
-      secondsUntilNextRegen: 0,
-      record,
-      pendingMonthly: 0
+    // Premium logic: Monthly 40 credits
+    let newCredits = record.credits
+    let lastDispense = record.lastPremiumDispense
+    let secondsUntilNextRegen = 0
+
+    if (!lastDispense || isMonthPassed(lastDispense)) {
+      newCredits += 40
+      lastDispense = now
+      // Update DB
+      await db
+        .update(userCredits)
+        .set({ 
+          credits: newCredits,
+          lastPremiumDispense: now,
+        })
+        .where(eq(userCredits.userId, userId))
+    } else {
+      // Calculate time to next month
+      const nextMonth = new Date(lastDispense.getFullYear(), lastDispense.getMonth() + 1, lastDispense.getDate())
+      if (nextMonth.getDate() !== lastDispense.getDate()) {
+        nextMonth.setDate(0)
+      }
+      const timeLeftMs = nextMonth.getTime() - nowMs
+      secondsUntilNextRegen = Math.max(0, Math.ceil(timeLeftMs / 1000))
     }
-  }
 
-  const nowMs = Date.now()
-  const lastTimeMs = new Date(record.lastRegenTime).getTime()
-  const elapsedMs = nowMs - lastTimeMs
-  const fullIntervals = Math.floor(elapsedMs / INTERVAL_MS)
+    const updatedRecord = {
+      ...record,
+      credits: newCredits,
+      lastPremiumDispense: lastDispense,
+    }
 
-  let newCredits = record.credits
-  let newLastTimeMs = lastTimeMs
+    return { 
+      credits: newCredits, 
+      secondsUntilNextRegen,
+      record: updatedRecord,
+      pendingMonthly: 0 // No pending for premium
+    }
+  } else {
+    // Non-premium: Hourly regen
+    const lastTimeMs = new Date(record.lastRegenTime).getTime()
+    const elapsedMs = nowMs - lastTimeMs
+    const fullIntervals = Math.floor(elapsedMs / INTERVAL_MS)
 
-  if (fullIntervals > 0) {
-    newCredits += fullIntervals * CREDITS_PER_INTERVAL
-    // Advance lastRegenTime to the start of the current interval (end of last full interval)
-    newLastTimeMs = lastTimeMs + (fullIntervals * INTERVAL_MS)
-    // Update db
-    await db
-      .update(userCredits)
-      .set({ 
-        credits: newCredits,
-        lastRegenTime: new Date(newLastTimeMs),
-      })
-      .where(eq(userCredits.userId, userId))
-  }
+    let newCredits = record.credits
+    let newLastTimeMs = lastTimeMs
 
-  // Calculate time left in current interval
-  const timeSinceLastMs = nowMs - newLastTimeMs
-  let timeLeftMs = INTERVAL_MS - timeSinceLastMs
+    if (fullIntervals > 0) {
+      newCredits += fullIntervals * CREDITS_PER_INTERVAL
+      // Advance lastRegenTime to the start of the current interval (end of last full interval)
+      newLastTimeMs = lastTimeMs + (fullIntervals * INTERVAL_MS)
+      // Update db
+      await db
+        .update(userCredits)
+        .set({ 
+          credits: newCredits,
+          lastRegenTime: new Date(newLastTimeMs),
+        })
+        .where(eq(userCredits.userId, userId))
+    }
 
-  // If somehow negative (clock skew), reset to full interval
-  if (timeLeftMs < 0) {
-    timeLeftMs = INTERVAL_MS
-    newLastTimeMs = nowMs
-    await db
-      .update(userCredits)
-      .set({ lastRegenTime: new Date(nowMs) })
-      .where(eq(userCredits.userId, userId))
-  }
+    // Calculate time left in current interval
+    const timeSinceLastMs = nowMs - newLastTimeMs
+    let timeLeftMs = INTERVAL_MS - timeSinceLastMs
 
-  const secondsUntilNext = Math.ceil(timeLeftMs / 1000)
+    // If somehow negative (clock skew), reset to full interval
+    if (timeLeftMs < 0) {
+      timeLeftMs = INTERVAL_MS
+      newLastTimeMs = nowMs
+      await db
+        .update(userCredits)
+        .set({ lastRegenTime: new Date(nowMs) })
+        .where(eq(userCredits.userId, userId))
+    }
 
-  // Update record in memory
-  const updatedRecord = {
-    ...record,
-    credits: newCredits,
-    lastRegenTime: new Date(newLastTimeMs),
-  }
+    const secondsUntilNext = Math.ceil(timeLeftMs / 1000)
 
-  // Calculate pending monthly credits
-  const pendingMonthly = isMonthPassed(updatedRecord.lastMonthlyClaim) ? 10 : 0
+    // Update record in memory
+    const updatedRecord = {
+      ...record,
+      credits: newCredits,
+      lastRegenTime: new Date(newLastTimeMs),
+    }
 
-  return { 
-    credits: newCredits, 
-    lastRegenTime: updatedRecord.lastRegenTime,
-    secondsUntilNextRegen: secondsUntilNext,
-    record: updatedRecord,
-    pendingMonthly
+    // Calculate pending monthly credits
+    const pendingMonthly = isMonthPassed(updatedRecord.lastMonthlyClaim) ? 10 : 0
+
+    return { 
+      credits: newCredits, 
+      lastRegenTime: updatedRecord.lastRegenTime,
+      secondsUntilNextRegen: secondsUntilNext,
+      record: updatedRecord,
+      pendingMonthly
+    }
   }
 }
 
@@ -164,7 +203,7 @@ export async function GET(request: NextRequest) {
     pendingGift,
     pendingMonthly: data.pendingMonthly,
     secondsUntilNextRegen: data.secondsUntilNextRegen,
-    isPremium: data.record.isPremium, // New: Return status
+    isPremium: data.record.isPremium,
   })
 }
 
@@ -188,6 +227,8 @@ export async function POST(request: NextRequest) {
       lastClaimedGiftId: null,
       lastMonthlyClaim: null,
       isPremium: false,
+      lastPremiumDispense: null,
+      stripeCustomerId: null,
     })
     record = { 
       userId,
@@ -195,12 +236,23 @@ export async function POST(request: NextRequest) {
       lastRegenTime: new Date(), 
       lastClaimedGiftId: null,
       lastMonthlyClaim: null, 
-      isPremium: false 
+      isPremium: false,
+      lastPremiumDispense: null,
+      stripeCustomerId: null,
     }
   }
 
   if (record.isPremium) {
-    // Premium: No deduction needed, always success
+    // Premium: Apply regen and check if credits available
+    const data = await applyRegeneration(userId)
+    if (data.credits <= 0) {
+      return NextResponse.json({ error: 'Insufficient credits (monthly refill pending)' }, { status: 402 })
+    }
+    // Deduct 1 credit for premium users too (enforce 40/month limit)
+    await db
+      .update(userCredits)
+      .set({ credits: data.credits - 1 })
+      .where(eq(userCredits.userId, userId))
     return NextResponse.json({ success: true })
   }
 

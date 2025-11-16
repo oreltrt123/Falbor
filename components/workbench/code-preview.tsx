@@ -1,6 +1,3 @@
-// components/workbench/code-preview.tsx
-// ... (keep the rest the same, but remove the useEffect for addCommand since we're relying on the document listener)
-
 "use client"
 
 import { cn } from "@/lib/utils"
@@ -10,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MainHeader } from "./main-header"
 import { CodeTab } from "./code-tab"
 import { PreviewTab } from "./preview-tab"
+import { useAuth } from "@clerk/nextjs"
 
 interface CodePreviewProps {
   projectId: string
@@ -33,10 +31,16 @@ export function CodePreview({ projectId }: CodePreviewProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const previousScrollTop = useRef(0)
   const monacoRef = useRef<any>(null)
+  const { getToken } = useAuth()
 
   const fetchFiles = async () => {
     try {
-      const filesResponse = await fetch(`/api/projects/${projectId}/files`)
+      const token = await getToken()
+      const filesResponse = await fetch(`/api/projects/${projectId}/files`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
       if (!filesResponse.ok) {
         throw new Error(`HTTP error! status: ${filesResponse.status}`)
       }
@@ -71,9 +75,13 @@ export function CodePreview({ projectId }: CodePreviewProps) {
     if (!selectedFile || editedContent === selectedFile.content) return
 
     try {
+      const token = await getToken()
       await fetch(`/api/projects/${projectId}/files/${encodeURIComponent(selectedFile.path)}`, {
         method: 'PUT',
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ content: editedContent }),
       })
       await fetchFiles()
@@ -102,9 +110,13 @@ export function CodePreview({ projectId }: CodePreviewProps) {
   useEffect(() => {
     const initPreview = async () => {
       try {
+        const token = await getToken()
         const response = await fetch("/api/sandbox", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
           body: JSON.stringify({ projectId }),
         })
 
@@ -131,7 +143,7 @@ export function CodePreview({ projectId }: CodePreviewProps) {
     }, 2000)
 
     return () => clearInterval(pollInterval)
-  }, [projectId])
+  }, [projectId, getToken])
 
   useEffect(() => {
     if (selectedFile) {
@@ -169,7 +181,12 @@ export function CodePreview({ projectId }: CodePreviewProps) {
 
     setIsSearching(true)
     try {
-      const response = await fetch(`/api/projects/${projectId}/search?q=${encodeURIComponent(searchQuery)}`)
+      const token = await getToken()
+      const response = await fetch(`/api/projects/${projectId}/search?q=${encodeURIComponent(searchQuery)}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
@@ -192,7 +209,7 @@ export function CodePreview({ projectId }: CodePreviewProps) {
     }, 300)
 
     return () => clearTimeout(debounce)
-  }, [searchQuery])
+  }, [searchQuery, getToken])
 
   const highlightMatch = (text: string, matches: { start: number; end: number }[]) => {
     if (!matches || matches.length === 0) return text
@@ -226,7 +243,7 @@ export function CodePreview({ projectId }: CodePreviewProps) {
   }), [])
 
   return (
-  <div className="h-full flex flex-col border border-[#4444442d] rounded-2xl bg-[#1b1b1b] relative overflow-hidden">
+  <div className="h-full flex flex-col border border-[#d6d6d6] rounded-md bg-[#ffffff] relative overflow-hidden">
     <div className="absolute left-0 top-0 h-full w-1 bg-gray-500 opacity-0 hover:opacity-30 pointer-events-none rounded-l"></div>
 
 

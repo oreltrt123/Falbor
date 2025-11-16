@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { ChevronDown, Loader } from "lucide-react"
 import type { Message } from "@/config/schema"
 import Link from "next/link"
+import { PricingModal } from "@/components/models/PricingModal" // New import
 
 interface ChatInputProps {
   isAuthenticated: boolean
@@ -17,6 +18,7 @@ interface ChatInputProps {
   initialModel?: string
   connected?: boolean
   onCloseIdeas?: () => void
+  isAutomated?: boolean // New: For cron auto-chats; skips credits
 }
 
 interface CreditsData {
@@ -24,6 +26,7 @@ interface CreditsData {
   secondsUntilNextRegen: number
   pendingGift?: number
   pendingMonthly?: number
+  isPremium: boolean // Updated: Include premium status
 }
 
 export interface ChatInputRef {
@@ -37,7 +40,7 @@ interface ModelOption {
   soon?: string
 }
 
-export type ModelType = "gemini" | "v0" | "claude" | "gpt" | "grok"
+export type ModelType = "gemini" | "claude" | "gpt" | "deepseek" | "gptoss" // | "grok" | "v0" 
 
 const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInputImpl(
   {
@@ -48,6 +51,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     initialModel = "gemini",
     connected = false,
     onCloseIdeas,
+    isAutomated = false, // New
   },
   ref,
 ) {
@@ -62,6 +66,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   const [selectedModel, setSelectedModel] = useState<ModelType>(initialModel as ModelType)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [isDiscussMode, setIsDiscussMode] = useState(false)
+  const [showPricingModal, setShowPricingModal] = useState(false) // New: Modal state
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
@@ -73,8 +78,10 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     gemini: { label: "Gemini 2.0", icon: "/icons/gemini.png", color: "text-blue-400" },
     claude: { label: "Claude Sonnet 4.5", icon: "/icons/claude.png", color: "text-purple-400" },
     gpt: { label: "GPT-5", icon: "/icons/openai.png", color: "text-green-400" },
-    v0: { label: "v0", icon: "/icons/logoV0.png", color: "text-orange-400", soon: "SOON" },
-    grok: { label: "Grok-3", icon: "/icons/grok.png", color: "text-red-400", soon: "SOON" },
+    // v0: { label: "v0", icon: "/icons/logoV0.png", color: "text-orange-400" },
+    // grok: { label: "Grok-3", icon: "/icons/grok.png", color: "text-red-400", soon: "SOON" },
+    deepseek: { label: "Deepseek R3", icon: "/icons/deepseek.png", color: "text-teal-400" },
+    gptoss: { label: "GPT-OSS 20B", icon: "/icons/openai.png", color: "text-green-400" },
   }
 
   useEffect(() => {
@@ -213,13 +220,13 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
       return
     }
 
-    if (isDiscussMode && selectedModel === "v0") {
-      alert("Discuss mode is not supported with v0. Please switch to another model.")
-      return
-    }
+    // if (isDiscussMode && selectedModel === "v0") {
+    //   alert("Discuss mode is not supported with v0. Please switch to another model.")
+    //   return
+    // }
 
-    if (isLoaded && creditsData && creditsData.credits <= 0) {
-      alert("Insufficient credits. Please wait for regeneration.")
+    if (isLoaded && creditsData && !creditsData.isPremium && creditsData.credits <= 0 && !isAutomated) { // Updated: Only block non-premium
+      alert("Insufficient credits. Upgrade to Premium for more!")
       return
     }
 
@@ -227,25 +234,27 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     const userMessage = message
 
     try {
-      const deductRes = await fetch("/api/user/credits", {
-        method: "POST",
-      })
+      if (!isAutomated) { // Deduct only manual
+        const deductRes = await fetch("/api/user/credits", {
+          method: "POST",
+        })
 
-      if (!deductRes.ok) {
-        const errData = await deductRes.json().catch(() => ({}))
-        if (deductRes.status === 401) {
-          alert("Please sign in to continue.")
+        if (!deductRes.ok) {
+          const errData = await deductRes.json().catch(() => ({}))
+          if (deductRes.status === 401) {
+            alert("Please sign in to continue.")
+            return
+          }
+          if (deductRes.status === 402) {
+            alert("Insufficient credits. Please wait for regeneration or upgrade.")
+            return
+          }
+          alert(errData.error || "Failed to process your request. Please try again.")
           return
         }
-        if (deductRes.status === 402) {
-          alert("Insufficient credits. Please wait for regeneration.")
-          return
-        }
-        alert(errData.error || "Failed to process your request. Please try again.")
-        return
+
+        await refetchCredits()
       }
-
-      await refetchCredits()
 
       setMessage("")
       setSelectedImage(null)
@@ -261,6 +270,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
           createdAt: new Date(),
           thinking: null,
           searchQueries: null,
+          isAutomated: false,
         }
         onNewMessage(tempUser)
 
@@ -274,6 +284,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
           createdAt: new Date(),
           thinking: null,
           searchQueries: null,
+          isAutomated: false,
         }
         onNewMessage(tempAssistant)
 
@@ -289,6 +300,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               imageData: selectedImage,
               model: selectedModel,
               discussMode: isDiscussMode,
+              isAutomated, // New: Pass flag
             }),
           })
 
@@ -340,6 +352,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                         ...tempAssistant,
                         content: accumulated,
                         id: tempAssistantId,
+                        isAutomated: false,
                       })
                     }
 
@@ -355,6 +368,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                         createdAt: new Date(),
                         thinking: null,
                         searchQueries: null,
+                        isAutomated: false,
                       })
                     }
                   } catch (parseError) {
@@ -383,6 +397,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             imageData: selectedImage,
             model: selectedModel,
             discussMode: isDiscussMode,
+            isAutomated,
           }),
         })
       } else {
@@ -393,6 +408,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             message: userMessage,
             model: selectedModel,
             discussMode: isDiscussMode,
+            isAutomated, // New
           }),
         })
         const { projectId: newId } = await res.json()
@@ -411,6 +427,11 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
       e.preventDefault()
       handleSubmit(e)
     }
+  }
+
+  const handleUpgradeClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setShowPricingModal(true)
   }
 
   useImperativeHandle(
@@ -432,13 +453,13 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   if (!isLoaded || !isAuthenticated) {
     return (
       <div className="space-y-2">
-        <div className="relative bg-[#212122] border border-[#3b3b3f77] rounded-md overflow-hidden">
+        <div className="relative bg-[#ffffff]  rounded-md overflow-hidden">
           <textarea
             placeholder={placeholder}
             className="w-full min-h-[80px] max-h-[150px] resize-none bg-transparent text-white placeholder:text-muted-foreground px-3 pt-3 pb-12 text-base outline-none overflow-y-auto field-sizing-content disabled:cursor-not-allowed disabled:opacity-50"
             disabled
           />
-          <div className="absolute top-0 right-0 flex items-center justify-between px-3 py-2 bg-[#212122]">
+          <div className="absolute top-0 right-0 flex items-center justify-between px-3 py-2 bg-[#ffffff]">
             <div className="flex gap-1.5">
               <Link href={"/sign-in"}>
                 <button className="text-sm font-medium cursor-pointer w-[70px] bg-[#ff8c00c0] p-1 rounded-md text-[#e9e9e9]">
@@ -454,6 +475,8 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
   const formRoundedClass = connected ? "rounded-t-[13px]" : "rounded-[13px]"
   const formBorderClass = connected ? "border-b-0" : "border-3"
+
+  const showUpgradeButton = creditsData && !creditsData.isPremium && creditsData.credits <= 0 && !isAutomated
 
   return (
     <div className="">
@@ -479,7 +502,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
       <form
         onSubmit={handleSubmit}
-        className={`relative bg-[#1f1e1e] ${formBorderClass} border-5 border-[#272727] ${formRoundedClass}`}
+        className={`relative bg-[#ffffff] border border-[#d6d6d6] p-1 ${formRoundedClass}`} //${formBorderClass}
       >
         <textarea
           ref={textareaRef}
@@ -489,25 +512,25 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           placeholder={isDiscussMode ? "Discuss anything..." : placeholder}
-          className="w-full min-h-[100px] max-h-[150px] resize-none bg-transparent text-white placeholder:text-muted-foreground border border-[#505050a2]
-                     px-3 pt-3 pb-10 text-base outline-none overflow-y-auto field-sizing-content chat-messages-scroll rounded-[9px]
+          className="w-full min-h-[100px] max-h-[150px] resize-none bg-transparent text-black placeholder:text-muted-foreground
+                     px-3 pt-3 pb-10 text-base outline-none overflow-y-auto field-sizing-content chat-messages-scroll
                      disabled:cursor-not-allowed disabled:opacity-50"
           style={{ scrollbarWidth: "thin" }}
           disabled={isLoading}
         />
 
-        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-2 py-1.5 bg-[#1f1e1e] rounded-[9px] border border-[#505050a2] border-t-0 rounded-t-none">
+        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between p-2 bg-[#ffff] rounded-[9px]">
           <div className="flex gap-1 items-center">
             <Button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="px-2 py-2 text-sm text-white/75 hover:text-white hover:bg-[#292828] h-auto ml-1"
+              className="px-2 py-2 text-sm text-white/75 hover:text-white hover:bg-[#e4e4e4] h-auto ml-1"
               title="Upload image"
               disabled={isLoading}
               variant="ghost"
               size="sm"
             >
-              <img width={13} height={13} src="/icons/plus.png" alt="" />
+              <img width={13} height={13} src="/icons/plus_light.png" alt="" />
             </Button>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
 
@@ -515,13 +538,13 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               type="button"
               onClick={handleImprovePrompt}
               disabled={isImproving || !message.trim() || !projectId || isLoading}
-              className="px-2 py-1 text-sm text-white/75 hover:text-white hover:bg-[#292828] h-auto ml-1"
+              className="px-2 py-1 text-sm text-white/75 hover:text-white hover:bg-[#e4e4e4] h-auto ml-1"
               title="Improve prompt"
               variant="ghost"
               size="sm"
             >
               {!isImproving ? (
-                <img width={16} height={16} src="/enhance_prompt.png" alt="" />
+                <img width={16} height={16} src="/icons/enhance_prompt.png" alt="" />
               ) : (
                 <span className="ml-1 animate-pulse">
                   <Loader />
@@ -533,7 +556,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               <Button
                 type="button"
                 onClick={() => setShowModelDropdown(!showModelDropdown)}
-                className="px-2 py-1 text-sm text-white/75 hover:text-white hover:bg-[#313135] h-auto ml-1"
+                className="px-2 py-1 text-sm text-black/75 hover:text-white hover:bg-[#e4e4e4] h-auto ml-1"
                 disabled={isLoading}
                 variant="ghost"
                 size="sm"
@@ -543,15 +566,15 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                   alt=""
                   className={`w-3.5 h-3.5 ${modelOptions[selectedModel].color}`}
                 />
-                <span className="text-white/75">{modelOptions[selectedModel].label}</span>
+                <span className="text-black/75">{modelOptions[selectedModel].label}</span>
                 {modelOptions[selectedModel].soon && (
                   <span className="text-xs bg-[#333333e7] text-white/70 p-1 rounded-4xl ml-1">SOON</span>
                 )}
-                <ChevronDown className="w-3 h-3 text-white/50" />
+                <ChevronDown className="w-3 h-3 text-black/50" />
               </Button>
 
               {showModelDropdown && (
-                <div className="absolute left-0 bottom-0 translate-y-1 bg-[#181818] border border-[#333333c9] rounded-md shadow-lg overflow-hidden p-1 z-50 min-w-[180px]">
+                <div className="absolute left-0 bottom-0 translate-y-1 bg-[#ffffff] border border-[#e0e0e0c9] rounded-md overflow-hidden p-1 z-50 min-w-[180px]">
                   {Object.entries(modelOptions).map(([key, option]) => {
                     const { label, icon, color, soon } = option
                     const isComingSoon = !!soon
@@ -568,12 +591,12 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                           setShowModelDropdown(false)
                         }}
                         disabled={isComingSoon}
-                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-lg hover:bg-[#3333338e] transition-colors ${
-                          selectedModel === key ? "bg-[#3333337a]" : ""
+                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4] ${
+                          selectedModel === key ? "font-bold" : ""
                         } ${isComingSoon ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
                         <img src={icon || "/placeholder.svg"} alt="" className={`w-3.5 h-3.5 ${color}`} />
-                        <span className="text-white/75">{label}</span>
+                        <span className="text-black/75">{label}</span>
                         {soon && <span className="text-xs text-white/70 bg-[#333333e7] w-[35%] rounded-4xl">SOON</span>}
                         {selectedModel === key && !isComingSoon && <span className="ml-auto text-green-400">✓</span>}
                       </button>
@@ -588,23 +611,43 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                 variant="ghost"
                 size="sm"
                 onClick={onCloseIdeas}
-                className="px-2 py-1 text-sm text-white/75 hover:text-white hover:bg-[#313135] h-auto ml-1"
+                className="px-2 py-2 text-sm text-black/75 hover:text-black hover:bg-[#e4e4e4] h-auto ml-1"
               >
                 Close
               </Button>
             )}
           </div>
 
-          <Button
-            type="submit"
-            size="icon"
-            className="h-7 w-7 p-1.5 bg-[#2f2f30]"
-            disabled={!message.trim() || isLoading || !isAuthenticated || !!modelOptions[selectedModel]?.soon}
-          >
-            <img width={16} height={16} src="/mouse-cursor.png" alt="" />
-          </Button>
+          {/* Updated: Conditional send/upgrade button */}
+          {showUpgradeButton ? (
+            <Button
+              type="button"
+              onClick={handleUpgradeClick}
+              size="icon"
+              className="h-7 w-20 p-1.5 bg-[#e4e4e4] hover:bg-[#e7e7e7] text-black"
+              disabled={isLoading}
+            >
+              Upgrade
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              size="icon"
+              className="h-7 w-7 p-1.5 bg-[#2f2f30]"
+              disabled={!message.trim() || isLoading || !isAuthenticated || !!modelOptions[selectedModel]?.soon}
+            >
+              <img width={16} height={16} src="/mouse-cursor.png" alt="" />
+            </Button>
+          )}
         </div>
       </form>
+
+      {/* New: Pricing Modal */}
+      <PricingModal
+        open={showPricingModal}
+        onClose={() => setShowPricingModal(false)}
+        onSuccess={refetchCredits}
+      />
     </div>
   )
 })

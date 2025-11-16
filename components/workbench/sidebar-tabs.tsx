@@ -13,10 +13,10 @@ export function SidebarTabs({ sidebarView, setSidebarView }: SidebarTabsProps) {
       <button
         onClick={() => setSidebarView("files")}
         className={cn(
-          "w-[80px] h-[24px] mr-0.5 flex items-center rounded-md justify-center gap-1.5 py-1.5 text-[13px] font-medium transition-colors -mb-[1px]",
+          "w-[80px] h-[24px] mr-0.5 flex items-center rounded-sm justify-center gap-1.5 py-1.5 text-[13px] font-medium transition-colors -mb-[1px]",
           sidebarView === "files"
-            ? "text-white hover:text-white hover:bg-[#7a7a7a38] bg-[#7a7a7a2a]"
-            : "text-white/50 hover:text-white hover:bg-[#7a7a7a38]"
+            ? "text-black hover:text-black hover:bg-[#7a7a7a38] bg-[#7a7a7a2a]"
+            : "text-black/50 hover:text-black hover:bg-[#7a7a7a1f]"
         )}
       >
         <Files className="w-3.5 h-3.5" />
@@ -26,10 +26,10 @@ export function SidebarTabs({ sidebarView, setSidebarView }: SidebarTabsProps) {
       <button
         onClick={() => setSidebarView("search")}
         className={cn(
-          "w-[80px] h-[24px] flex items-center rounded-md justify-center gap-1.5 py-1.5 text-[13px] font-medium transition-colors -mb-[1px]",
+          "w-[80px] h-[24px] flex items-center rounded-sm justify-center gap-1.5 py-1.5 text-[13px] font-medium transition-colors -mb-[1px]",
           sidebarView === "search"
-            ? "text-white hover:text-white hover:bg-[#7a7a7a38] bg-[#7a7a7a2a]"
-            : "text-white/50 hover:text-white hover:bg-[#7a7a7a38]"
+            ? "text-black hover:text-black hover:bg-[#7a7a7a38] bg-[#7a7a7a2a]"
+            : "text-black/50 hover:text-black hover:bg-[#7a7a7a1f]"
         )}
       >
         <Search className="w-3.5 h-3.5" />

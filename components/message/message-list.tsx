@@ -116,7 +116,7 @@ export function MessageList({ messages, onArtifactClick }: MessageListProps) {
             <div
               className={cn(
                 "max-w-[100%] rounded-lg px-4 py-3",
-                message.role === "user" ? "bg-[#222222] text-[15px] text-white/75" : "text-[15px] text-white",
+                message.role === "user" ? "bg-[#e4e4e4] text-[15px] text-black/75" : "text-[15px] text-black",
               )}
               role={message.role === "user" ? "user-message" : "assistant-message"}
               aria-label={`${message.role} message`}
@@ -167,7 +167,7 @@ export function MessageList({ messages, onArtifactClick }: MessageListProps) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="relative flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-white/75 hover:text-white bg-transparent hover:bg-transparent border-none p-0 h-auto group"
+                          className="relative flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
                           aria-expanded={expandedThinking[message.id]}
                           aria-controls={`thinking-${message.id}`}
                         >
@@ -197,8 +197,8 @@ export function MessageList({ messages, onArtifactClick }: MessageListProps) {
                       </CollapsibleTrigger>
                       <CollapsibleContent className="mt-2 space-y-3">
                         {thinking && (
-                          <Card className="bg-[#1E1E21] border-white/10">
-                            <CardContent className="p-3 text-xs text-white/60 whitespace-pre-wrap max-h-64 overflow-y-auto">
+                          <Card className="bg-[#e4e4e4] border-none shadow-none">
+                            <CardContent className="text-xs text-black whitespace-pre-wrap max-h-64 overflow-y-auto">
                               {thinking}
                             </CardContent>
                           </Card>
@@ -237,7 +237,7 @@ export function MessageList({ messages, onArtifactClick }: MessageListProps) {
                     </Collapsible>
                   )}
 
-                  <div className="prose prose-sm dark:prose-invert max-w-none text-white/75">
+                  <div className="prose prose-sm dark:prose-invert max-w-none text-black/75">
                     {isStreaming && !cleanContent ? (
                       <div className="flex items-center gap-2 text-muted-foreground" aria-live="polite">
                         <Loader2 className="w-4 h-4 animate-spin" />
@@ -246,15 +246,15 @@ export function MessageList({ messages, onArtifactClick }: MessageListProps) {
                     ) : (
                       <ReactMarkdown
                         components={{
-                          h1: ({ ...props }) => <h1 className="text-xl font-bold mt-4 mb-2 text-white" {...props} />,
-                          h2: ({ ...props }) => <h2 className="text-lg font-bold mt-3 mb-2 text-white" {...props} />,
-                          h3: ({ ...props }) => <h3 className="text-base font-bold mt-2 mb-1 text-white" {...props} />,
+                          h1: ({ ...props }) => <h1 className="text-xl font-sans font-light mt-4 mb-2 text-black" {...props} />,
+                          h2: ({ ...props }) => <h2 className="text-lg font-sans font-light mt-3 mb-2 text-black" {...props} />,
+                          h3: ({ ...props }) => <h3 className="text-base font-sans font-light mt-2 mb-1 text-black" {...props} />,
                           p: ({ ...props }) => <p className="mb-3 leading-relaxed" {...props} />,
                           ul: ({ ...props }) => <ul className="list-disc list-inside mb-3 space-y-1" {...props} />,
                           ol: ({ ...props }) => <ol className="list-decimal list-inside mb-3 space-y-1" {...props} />,
                           li: ({ ...props }) => <li className="ml-2" {...props} />,
-                          strong: ({ ...props }) => <strong className="font-semibold text-white" {...props} />,
-                          em: ({ ...props }) => <em className="italic text-white/80" {...props} />,
+                          strong: ({ ...props }) => <strong className="font-sans font-light text-[#085385]" {...props} />,
+                          em: ({ ...props }) => <em className="italic text-black/80" {...props} />,
                           code: ({ inline, className, children, ...props }: { inline?: boolean; className?: string; children?: React.ReactNode }) => {
                             const match = /language-(\w+)/.exec(className || "")
                             return !inline && match ? (
@@ -268,7 +268,8 @@ export function MessageList({ messages, onArtifactClick }: MessageListProps) {
                                 {String(children).replace(/\n$/, "")}
                               </SyntaxHighlighter>
                             ) : (
-                              <code className="bg-[#222222] px-1.5 py-1 rounded-md text-sm" {...props}>
+                              //bg-[#222222]
+                              <code className="px-1.5 py-1 rounded-md text-sm" {...props}>
                                 {children}
                               </code>
                             )

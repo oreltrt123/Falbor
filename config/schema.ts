@@ -1,4 +1,6 @@
-import { pgTable, text, timestamp, uuid, jsonb, boolean, integer } from "drizzle-orm/pg-core"
+import { pgTable, text, timestamp, uuid, jsonb, boolean, integer, serial } from "drizzle-orm/pg-core"
+import { sql } from "drizzle-orm"
+import { check } from "drizzle-orm/pg-core"
 
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -19,6 +21,7 @@ export const projects = pgTable("projects", {
   selectedModel: text("selected_model").default("gemini").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  isAutomated: boolean("is_automated").default(false).notNull(),
 })
 
 export const favorites = pgTable("favorites", {
@@ -41,6 +44,7 @@ export const messages = pgTable("messages", {
   thinking: text("thinking"),
   searchQueries: jsonb("search_queries").$type<{ query: string; results: string }[] | null>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  isAutomated: boolean("is_automated").default(false).notNull(),
 })
 
 export const files = pgTable("files", {
@@ -95,6 +99,8 @@ export const userCredits = pgTable("user_credits", {
   lastClaimedGiftId: uuid("last_claimed_gift_id").references(() => giftEvents.id),
   lastMonthlyClaim: timestamp("last_monthly_claim"),
   isPremium: boolean("is_premium").default(false).notNull(),
+  lastPremiumDispense: timestamp("last_premium_dispense"),
+  stripeCustomerId: text("stripe_customer_id"),
 })
 
 export const deployments = pgTable("deployments", {
@@ -109,6 +115,29 @@ export const deployments = pgTable("deployments", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
+
+export const figmaTokens = pgTable("figma_tokens", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token"),
+  expiresAt: timestamp("expires_at").notNull(),
+})
+
+// Automation settings table
+export const userAutomations = pgTable("user_automations", {
+  userId: text("user_id").primaryKey(),
+  selectedModel: text("selected_model").default("gemini").notNull(),
+  maxMessages: integer("max_messages").default(2).notNull(),
+  isActive: boolean("is_active").default(false).notNull(),
+  activatedAt: timestamp("activated_at"), // When user clicked "activate"
+  nextRunAt: timestamp("next_run_at"), // Calculated: activatedAt + 5 mins for first, then daily
+  lastRun: timestamp("last_run"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  check("max_messages_check", sql`${table.maxMessages} >= 2`),
+])
 
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
@@ -126,3 +155,5 @@ export type UserCredits = typeof userCredits.$inferSelect
 export type NewUserCredits = typeof userCredits.$inferInsert
 export type Deployment = typeof deployments.$inferSelect
 export type NewDeployment = typeof deployments.$inferInsert
+export type UserAutomation = typeof userAutomations.$inferSelect
+export type NewUserAutomation = typeof userAutomations.$inferInsert

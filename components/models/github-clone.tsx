@@ -60,14 +60,14 @@ export function GithubClone() {
   }
 
   return (
-    <div className="w-[29%]">
+    <div className="">
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-sm font-medium cursor-pointer w-full py-1 p-2 border border-[#44444450] hover:border-[#ff8c001f] rounded-4xl bg-[#272727a6] text-[#e9e9e9] flex items-center gap-2"
+        className="text-sm font-medium cursor-pointer py-1 p-2 w-full hover:border-[#ff8c001f] rounded-4xl bg-[#ffffff] text-[#000000] flex items-center gap-2"
       >
         <Github className="w-4 h-4" />
-        Clone from GitHub
+        <span className="font-sans font-light">Clone from GitHub</span>
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>

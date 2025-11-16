@@ -1,11 +1,12 @@
-// components/workbench/input-area.tsx
+// components/workbench/input-area.tsx (Updated: Added FigmaImport button)
 "use client"
 import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Lightbulb } from "lucide-react"
-import { ChatInput, type ChatInputRef } from "./chat-input"  // Import ChatInputRef for typing
-import { GithubClone } from "@/components/github-clone"
-import { IdeasPanel } from "@/components/ideas-panel"
+import { ChatInput, type ChatInputRef } from "@/components/layout/chat"    // Import ChatInputRef for typing
+import { GithubClone } from "@/components/models/github-clone"
+import { FigmaImport } from "@/components/models/figma-import"  // New import for Figma button
+import { IdeasPanel } from "@/components/models/ideas-panel"
 interface InputAreaProps {
   isAuthenticated: boolean
 }
@@ -16,27 +17,30 @@ export function InputArea({ isAuthenticated }: InputAreaProps) {
     chatInputRef.current?.insertPrompt(prompt)
   }
   return (
-    <div className="">
-      <ChatInput
-        {...({ ref: chatInputRef } as any)}
-        isAuthenticated={isAuthenticated}
-        connected={showIdeas}
-        onCloseIdeas={() => setShowIdeas(false)}
-      />
+    <div className="w-full">
+      <div className="w-full">
+        <ChatInput
+          {...({ ref: chatInputRef } as any)}
+          isAuthenticated={isAuthenticated}
+          connected={showIdeas}
+          onCloseIdeas={() => setShowIdeas(false)}
+        />
+      </div>
       {showIdeas && (
         <IdeasPanel
           onSelectIdea={handleSelectIdea}
         />
       )}
       {!showIdeas && isAuthenticated && (
-        <div className="flex justify-center items-center gap-3 mt-3">
+        <div className="flex flex-wrap justify-center items-center gap-3 mt-3 w-full px-4">
           <GithubClone />
+          {/* <FigmaImport /> */}
           <button
             onClick={() => setShowIdeas(true)}
-            className="text-sm font-medium cursor-pointer py-1 p-2 border border-[#44444450] hover:border-[#ff8c001f] rounded-4xl bg-[#272727a6] text-[#e9e9e9] flex items-center gap-2"
+            className="hidden sm:flex text-sm font-medium cursor-pointer py-1 px-4 hover:border-[#ff8c001f] rounded-4xl bg-[#ffffff] text-[#000000] items-center gap-2 w-full sm:w-auto"
           >
             <Lightbulb size={16} className="h-4 w-4" />
-            Suggestions
+            <span className="font-sans font-light">Suggestions</span>
           </button>
         </div>
       )}

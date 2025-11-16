@@ -68,7 +68,7 @@ export function CodeTab({
 
   return (
     <TabsContent value="code" className="flex-1 m-0 flex overflow-hidden rounded-bl-3xl border-t border-[#4444442d] mt-[-5px]">
-      <div className="w-64 overflow-y-hidden bg-[#1b1b1b] border border-[#4444442d] border-b-0 border-l-0 border-t-0 flex flex-col">
+      <div className="w-64 overflow-y-hidden border border-[#4444442d] border-b-0 border-l-0 border-t-0 flex flex-col">
         <SidebarTabs sidebarView={sidebarView} setSidebarView={setSidebarView} />
         {sidebarView === "files" && (
           <FileSidebar

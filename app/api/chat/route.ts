@@ -24,6 +24,11 @@ const UI_KEYWORDS = [
   "crud",
 ] // Broadened for better triggering
 
+const openRouterModels: Record<string, string> = {
+  deepseek: "deepseek/deepseek-chat-v3.1:free",
+  gptoss: "openai/gpt-oss-20b:free",
+}
+
 export async function POST(request: Request) {
   const { userId } = await auth()
 
@@ -46,6 +51,7 @@ export async function POST(request: Request) {
     model = "gemini",
     generateImages,
     discussMode = false,
+    isAutomated = false, // New
   } = body
 
   if (!message) {
@@ -63,6 +69,7 @@ export async function POST(request: Request) {
         userId,
         title: message.length > 50 ? `${message.substring(0, 47)}...` : message,
         selectedModel: model,
+        isAutomated, // New
       })
       .returning({ id: projects.id })
     projectId = newProject.id
@@ -72,6 +79,7 @@ export async function POST(request: Request) {
       projectId,
       role: "user",
       content: message,
+      isAutomated, // New
     })
   }
 
@@ -94,6 +102,7 @@ export async function POST(request: Request) {
         projectId,
         role: "user",
         content: message,
+        isAutomated, // New
       })
     } catch (e) {
       console.error("[API/Chat] User insert error:", e)
@@ -128,13 +137,17 @@ export async function POST(request: Request) {
       projectId,
       userId,
       discussMode,
+      isAutomated, // New
     )
   } else if (model === "claude") {
-    responseStream = await handleClaudeRequest(history, message, imageData, projectId, userId, discussMode)
+    responseStream = await handleClaudeRequest(history, message, imageData, projectId, userId, discussMode, isAutomated)
   } else if (model === "gpt") {
-    responseStream = await handleGPTRequest(history, message, imageData, projectId, userId, discussMode)
+    responseStream = await handleGPTRequest(history, message, imageData, projectId, userId, discussMode, isAutomated)
+  } else if (model === "deepseek" || model === "gptoss") {
+    const fullModel = openRouterModels[model]
+    responseStream = await handleOpenRouterRequest(history, message, imageData, projectId, userId, discussMode, fullModel, isAutomated)
   } else if (model === "v0") {
-    responseStream = await handleV0Request(history, message, projectId, userId, discussMode)
+    responseStream = await handleV0Request(history, message, imageData, projectId, userId, discussMode, isAutomated)
   } else {
     return new Response(JSON.stringify({ error: "Unknown model" }), { status: 400 })
   }
@@ -180,6 +193,7 @@ async function handleGeminiRequest(
   projectId: string,
   userId: string,
   discussMode: boolean,
+  isAutomated: boolean, // New
 ) {
   let genAI: GoogleGenerativeAI
   try {
@@ -278,6 +292,7 @@ async function handleGeminiRequest(
           uploadedFiles,
           generateImages,
           discussMode,
+          isAutomated, // New
         )
 
         console.log("[Gemini] Message saved successfully")
@@ -303,6 +318,7 @@ async function handleClaudeRequest(
   projectId: string,
   userId: string,
   discussMode: boolean,
+  isAutomated: boolean, // New
 ) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return createErrorStream(
@@ -373,6 +389,7 @@ async function handleClaudeRequest(
             undefined,
             false,
             discussMode,
+            isAutomated, // New
           )
         } catch (error) {
           console.error("[Claude] Stream error:", error)
@@ -396,6 +413,7 @@ async function handleGPTRequest(
   projectId: string,
   userId: string,
   discussMode: boolean,
+  isAutomated: boolean, // New
 ) {
   if (!process.env.OPENAI_API_KEY) {
     return createErrorStream("OpenAI API key not configured. Please add OPENAI_API_KEY to your environment variables.")
@@ -438,22 +456,29 @@ async function handleGPTRequest(
       async start(controller) {
         try {
           const stream = await openai.chat.completions.create({
-            model: "gpt-4o",
+            model: "gpt-5",  // Updated to real GPT-5 (available as of Aug 2025)
             messages: [
               { role: "system", content: systemPrompt },
               ...conversationHistory,
               { role: "user", content: message },
             ],
             stream: true,
-            max_tokens: 8192,
+            max_completion_tokens: 8192,
           })
 
+          let hasResponse = false
           for await (const chunk of stream) {
             const text = chunk.choices[0]?.delta?.content || ""
             if (text) {
+              hasResponse = true
               fullResponse += text
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
+              console.log(`[GPT] Chunk sent, length: ${text.length}`)  // Added logging for debugging empty responses
             }
+          }
+
+          if (!hasResponse) {
+            throw new Error("Empty response from GPT-5 API – check rate limits or key access")
           }
 
           console.log(`[GPT] Extracted code blocks: ${discussMode ? 0 : extractCodeBlocks(fullResponse).length}`)
@@ -468,6 +493,7 @@ async function handleGPTRequest(
             undefined,
             false,
             discussMode,
+            isAutomated, // New
           )
         } catch (error) {
           console.error("[GPT] Stream error:", error)
@@ -484,19 +510,231 @@ async function handleGPTRequest(
   }
 }
 
-async function handleV0Request(
+async function handleOpenRouterRequest(
   history: any[],
   message: string,
+  imageData: any,
   projectId: string,
   userId: string,
   discussMode: boolean,
+  modelName: string,
+  isAutomated: boolean, // New
+) {
+  if (!process.env.OPENROUTER_API_KEY) {
+    return createErrorStream("OpenRouter API key not configured. Please add OPENROUTER_API_KEY to your environment variables.")
+  }
+
+  let openai: any
+  try {
+    const OpenAI = (await import("openai")).default
+    openai = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+    })
+  } catch (e) {
+    console.error("[OpenRouter] SDK load error:", e)
+    return createErrorStream(`Failed to load OpenRouter SDK: ${e}`)
+  }
+
+  try {
+    const searchQuery = message
+    const searchResult = await doSearch(searchQuery)
+    console.log(`[OpenRouter] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
+
+    const isUIRequest = !discussMode && UI_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
+    console.log(`[OpenRouter] UI request detected: ${isUIRequest}`)
+    const uiContext = isUIRequest
+      ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
+      : ""
+
+    const systemPrompt =
+      (discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext) +
+      `\n\nContext from web search: ${searchResult.results}`
+
+    const conversationHistory = history.slice(0, -1).map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }))
+
+    const encoder = new TextEncoder()
+    let fullResponse = ""
+    const thinkingContent = ""
+
+    return new ReadableStream({
+      async start(controller) {
+        try {
+          const stream = await openai.chat.completions.create({
+            model: modelName,
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...conversationHistory,
+              { role: "user", content: message },
+            ],
+            stream: true,
+            max_tokens: 8192,
+          })
+
+          let hasResponse = false
+          for await (const chunk of stream) {
+            const text = chunk.choices[0]?.delta?.content || ""
+            if (text) {
+              hasResponse = true
+              fullResponse += text
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
+              console.log(`[OpenRouter] Chunk sent, length: ${text.length}`)
+            }
+          }
+
+          if (!hasResponse) {
+            throw new Error("Empty response from OpenRouter API")
+          }
+
+          console.log(`[OpenRouter] Extracted code blocks: ${discussMode ? 0 : extractCodeBlocks(fullResponse).length}`)
+
+          await saveAssistantMessage(
+            projectId,
+            fullResponse,
+            [searchResult],
+            thinkingContent,
+            controller,
+            encoder,
+            undefined,
+            false,
+            discussMode,
+            isAutomated, // New
+          )
+        } catch (error) {
+          console.error("[OpenRouter] Stream error:", error)
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`))
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, projectId })}\n\n`))
+        } finally {
+          controller.close()
+        }
+      },
+    })
+  } catch (e) {
+    console.error("[OpenRouter] Handler error:", e)
+    return createErrorStream(`OpenRouter handler failed: ${e}`)
+  }
+}
+
+async function handleV0Request(
+  history: any[],
+  message: string,
+  imageData: any,
+  projectId: string,
+  userId: string,
+  discussMode: boolean,
+  isAutomated: boolean, // New
 ) {
   if (discussMode) {
     return createErrorStream(
       "Discuss mode is not supported with v0 (code generation model). Please switch to another model.",
     )
   }
-  return createErrorStream("v0 integration coming soon. This will use Vercel's v0 API for enhanced code generation.")
+
+  if (!process.env.V0_API_KEY) {
+    return createErrorStream("v0 API key not configured. Please add V0_API_KEY to your environment variables.")
+  }
+
+  // Graceful handling: Check for Premium access early (v0 requires Premium/Team for API as of 2025)
+  // If you want to enforce this, add a pre-flight check to v0's account API, but for simplicity, let the SDK error and catch below
+  let openai: any
+  try {
+    const OpenAI = (await import("openai")).default
+    openai = new OpenAI({
+      apiKey: process.env.V0_API_KEY,
+      baseURL: "https://api.v0.dev/v1",
+    })
+  } catch (e) {
+    console.error("[v0] SDK load error:", e)
+    return createErrorStream(`Failed to load v0 SDK: ${e}`)
+  }
+
+  try {
+    const searchQuery = message
+    const searchResult = await doSearch(searchQuery)
+    console.log(`[v0] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
+
+    const isUIRequest = UI_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
+    console.log(`[v0] UI request detected: ${isUIRequest}`)
+    const uiContext = isUIRequest
+      ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
+      : ""
+
+    const systemPrompt = SYSTEM_PROMPT + uiContext + `\n\nContext from web search: ${searchResult.results}`
+
+    const conversationHistory = history.slice(0, -1).map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }))
+
+    const encoder = new TextEncoder()
+    let fullResponse = ""
+    const thinkingContent = ""
+
+    return new ReadableStream({
+      async start(controller) {
+        try {
+          const stream = await openai.chat.completions.create({
+            model: "v0-1.5-md",
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...conversationHistory,
+              { role: "user", content: message },
+            ],
+            stream: true,
+            max_tokens: 8192,
+          })
+
+          let hasResponse = false
+          for await (const chunk of stream) {
+            const text = chunk.choices[0]?.delta?.content || ""
+            if (text) {
+              hasResponse = true
+              fullResponse += text
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
+              console.log(`[v0] Chunk sent, length: ${text.length}`)
+            }
+          }
+
+          if (!hasResponse) {
+            throw new Error("Empty response from v0 API")
+          }
+
+          console.log(`[v0] Extracted code blocks: ${extractCodeBlocks(fullResponse).length}`)
+
+          await saveAssistantMessage(
+            projectId,
+            fullResponse,
+            [searchResult],
+            thinkingContent,
+            controller,
+            encoder,
+            undefined,
+            false,
+            discussMode,
+            isAutomated, // New
+          )
+        } catch (error: any) {
+          console.error("[v0] Stream error:", error)
+          let errorMsg = String(error)
+          // Specific handling for v0 Premium requirement
+          if (errorMsg.includes("Premium or Team plan required") || errorMsg.includes("403")) {
+            errorMsg = "v0 API requires a Premium or Team plan ($20/month). Upgrade at https://v0.dev/chat/settings/billing. Falling back to a basic response."
+            // Optional: Fallback to another model like gemini here if desired
+          }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMsg })}\n\n`))
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, projectId })}\n\n`))
+        } finally {
+          controller.close()
+        }
+      },
+    })
+  } catch (e) {
+    console.error("[v0] Handler error:", e)
+    return createErrorStream(`v0 handler failed: ${e}`)
+  }
 }
 
 function createErrorStream(errorMsg: string): ReadableStream<Uint8Array> {
@@ -523,6 +761,7 @@ async function saveAssistantMessage(
   uploadedFiles?: any[],
   generateImages?: boolean,
   discussMode = false,
+  isAutomated = false, // New
 ) {
   try {
     console.log("[Save] Extracting code blocks from response...")
@@ -542,6 +781,7 @@ async function saveAssistantMessage(
         hasArtifact,
         thinking: thinkingContent || null,
         searchQueries: searchQueries.length > 0 ? searchQueries : null,
+        isAutomated, // New
       })
       .returning()
 
