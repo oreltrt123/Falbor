@@ -3,10 +3,11 @@ import { auth } from "@clerk/nextjs/server"
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import Anthropic from "@anthropic-ai/sdk"
 import { db } from "@/config/db"
-import { projects, messages, files, artifacts } from "@/config/schema"
+import { projects, messages, files, artifacts, userCustomKnowledge, userModelConfigs } from "@/config/schema"
 import { eq, asc } from "drizzle-orm"
 import { SYSTEM_PROMPT } from "@/lib/common/prompts/prompt"
 import { DISCUSS_SYSTEM_PROMPT } from "@/lib/common/prompts/discuss-prompt"
+import { randomUUID } from "crypto"
 
 const UI_KEYWORDS = [
   "ui",
@@ -145,9 +146,28 @@ export async function POST(request: Request) {
     responseStream = await handleGPTRequest(history, message, imageData, projectId, userId, discussMode, isAutomated)
   } else if (model === "deepseek" || model === "gptoss") {
     const fullModel = openRouterModels[model]
-    responseStream = await handleOpenRouterRequest(history, message, imageData, projectId, userId, discussMode, fullModel, isAutomated)
+    responseStream = await handleOpenRouterRequest(
+      history,
+      message,
+      imageData,
+      projectId,
+      userId,
+      discussMode,
+      fullModel,
+      isAutomated,
+    )
   } else if (model === "v0") {
     responseStream = await handleV0Request(history, message, imageData, projectId, userId, discussMode, isAutomated)
+  } else if (model === "runware") {
+    responseStream = await handleRunwareRequest(
+      history,
+      message,
+      imageData,
+      projectId,
+      userId,
+      discussMode,
+      isAutomated,
+    )
   } else {
     return new Response(JSON.stringify({ error: "Unknown model" }), { status: 400 })
   }
@@ -161,29 +181,6 @@ export async function POST(request: Request) {
   })
 }
 
-async function doSearch(query: string): Promise<{ query: string; results: string }> {
-  try {
-    if (!process.env.SERPAPI_API_KEY) {
-      throw new Error("SERPAPI_API_KEY not set")
-    }
-    const params = new URLSearchParams({
-      engine: "google",
-      q: query,
-      api_key: process.env.SERPAPI_API_KEY!,
-      num: "5",
-    })
-    const response = await fetch(`https://serpapi.com/search?${params.toString()}`)
-    const data = await response.json()
-    const results =
-      data.organic_results?.map((r: any) => `${r.title}: ${r.snippet} (${r.link})`).join("\n") ||
-      "No relevant results found."
-    return { query, results }
-  } catch (error) {
-    console.error("[API/Chat] SerpAPI search error:", error)
-    return { query, results: "Search unavailable; proceeding with internal knowledge." }
-  }
-}
-
 async function handleGeminiRequest(
   history: any[],
   message: string,
@@ -195,19 +192,25 @@ async function handleGeminiRequest(
   discussMode: boolean,
   isAutomated: boolean, // New
 ) {
+  let apiKey = process.env.GEMINI_API_KEY
+  try {
+    const [config] = await db.select().from(userModelConfigs).where(eq(userModelConfigs.userId, userId))
+    if (config?.modelApiKeys?.gemini) {
+      apiKey = config.modelApiKeys.gemini
+    }
+  } catch (e) {
+    console.error("[Gemini] Failed to fetch custom API key:", e)
+  }
+
   let genAI: GoogleGenerativeAI
   try {
-    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+    genAI = new GoogleGenerativeAI(apiKey!)
   } catch (e) {
     console.error("[Gemini] API key error:", e)
     return createErrorStream("Gemini API key missing or invalid")
   }
 
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" })
-
-  const searchQuery = message
-  const searchResult = await doSearch(searchQuery)
-  console.log(`[Gemini] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
+  const model = genAI.getGenerativeModel({ model: "gemini-3-pro-preview" })
 
   // 21st.dev integration via prompt (no external call needed)
   const isUIRequest = !discussMode && UI_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
@@ -216,12 +219,14 @@ async function handleGeminiRequest(
     ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
     : ""
 
-  const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext
+  const customKnowledgePrompt = await getCustomKnowledge(userId)
+
+  const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext + customKnowledgePrompt
 
   const conversationHistory = [
     {
       role: "user",
-      parts: [{ text: systemPrompt + `\n\nContext from web search on "${searchQuery}":\n${searchResult.results}` }],
+      parts: [{ text: systemPrompt }],
     },
     {
       role: "model",
@@ -229,7 +234,7 @@ async function handleGeminiRequest(
         {
           text: discussMode
             ? "Understood. I'll engage in conversation without generating code."
-            : "Understood. I'll use the provided web search context and format code blocks properly with file paths.",
+            : "Understood. I'll format code blocks properly with file paths.",
         },
       ],
     },
@@ -285,8 +290,7 @@ async function handleGeminiRequest(
         await saveAssistantMessage(
           projectId,
           fullResponse,
-          [searchResult],
-          "", // thinkingContent is empty for Gemini
+          [], // No search results
           controller,
           encoder,
           uploadedFiles,
@@ -320,34 +324,40 @@ async function handleClaudeRequest(
   discussMode: boolean,
   isAutomated: boolean, // New
 ) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  let apiKey = process.env.ANTHROPIC_API_KEY
+  try {
+    const [config] = await db.select().from(userModelConfigs).where(eq(userModelConfigs.userId, userId))
+    if (config?.modelApiKeys?.claude) {
+      apiKey = config.modelApiKeys.claude
+    }
+  } catch (e) {
+    console.error("[Claude] Failed to fetch custom API key:", e)
+  }
+
+  if (!apiKey) {
     return createErrorStream(
-      "Claude API key not configured. Please add ANTHROPIC_API_KEY to your environment variables.",
+      "Claude API key not configured. Please add ANTHROPIC_API_KEY to your environment variables or add your API key in Settings.",
     )
   }
 
   let anthropic: any
   try {
-    anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    anthropic = new Anthropic({ apiKey })
   } catch (e) {
     console.error("[Claude] SDK init error:", e)
     return createErrorStream(`Claude SDK failed: ${e}`)
   }
 
   try {
-    const searchQuery = message
-    const searchResult = await doSearch(searchQuery)
-    console.log(`[Claude] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
-
     const isUIRequest = !discussMode && UI_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
     console.log(`[Claude] UI request detected: ${isUIRequest}`)
     const uiContext = isUIRequest
       ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
       : ""
 
-    const systemPrompt =
-      (discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext) +
-      `\n\nContext from web search: ${searchResult.results}`
+    const customKnowledgePrompt = await getCustomKnowledge(userId)
+
+    const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext + customKnowledgePrompt
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role,
@@ -356,13 +366,12 @@ async function handleClaudeRequest(
 
     const encoder = new TextEncoder()
     let fullResponse = ""
-    const thinkingContent = ""
 
     return new ReadableStream({
       async start(controller) {
         try {
           const stream = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-20241022",
+            model: "claude-sonnet-4-5", // Fixed: Use current Sonnet 4.5 alias (replaces deprecated claude-3-5-sonnet)
             max_tokens: 8192,
             system: systemPrompt,
             messages: [...conversationHistory, { role: "user", content: message }],
@@ -382,8 +391,7 @@ async function handleClaudeRequest(
           await saveAssistantMessage(
             projectId,
             fullResponse,
-            [searchResult],
-            thinkingContent,
+            [], // No search results
             controller,
             encoder,
             undefined,
@@ -415,33 +423,41 @@ async function handleGPTRequest(
   discussMode: boolean,
   isAutomated: boolean, // New
 ) {
-  if (!process.env.OPENAI_API_KEY) {
-    return createErrorStream("OpenAI API key not configured. Please add OPENAI_API_KEY to your environment variables.")
+  let apiKey = process.env.OPENAI_API_KEY
+  try {
+    const [config] = await db.select().from(userModelConfigs).where(eq(userModelConfigs.userId, userId))
+    if (config?.modelApiKeys?.gpt) {
+      apiKey = config.modelApiKeys.gpt
+    }
+  } catch (e) {
+    console.error("[GPT] Failed to fetch custom API key:", e)
+  }
+
+  if (!apiKey) {
+    return createErrorStream(
+      "OpenAI API key not configured. Please add OPENAI_API_KEY to your environment variables or add your API key in Settings.",
+    )
   }
 
   let openai: any
   try {
     const OpenAI = (await import("openai")).default
-    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    openai = new OpenAI({ apiKey })
   } catch (e) {
     console.error("[GPT] SDK load error:", e)
     return createErrorStream(`Failed to load OpenAI SDK: ${e}`)
   }
 
   try {
-    const searchQuery = message
-    const searchResult = await doSearch(searchQuery)
-    console.log(`[GPT] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
-
     const isUIRequest = !discussMode && UI_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
     console.log(`[GPT] UI request detected: ${isUIRequest}`)
     const uiContext = isUIRequest
       ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
       : ""
 
-    const systemPrompt =
-      (discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext) +
-      `\n\nContext from web search: ${searchResult.results}`
+    const customKnowledgePrompt = await getCustomKnowledge(userId)
+
+    const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext + customKnowledgePrompt
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role,
@@ -450,13 +466,12 @@ async function handleGPTRequest(
 
     const encoder = new TextEncoder()
     let fullResponse = ""
-    const thinkingContent = ""
 
     return new ReadableStream({
       async start(controller) {
         try {
           const stream = await openai.chat.completions.create({
-            model: "gpt-5",  // Updated to real GPT-5 (available as of Aug 2025)
+            model: "gpt-5", // Updated to real GPT-5 (available as of Aug 2025)
             messages: [
               { role: "system", content: systemPrompt },
               ...conversationHistory,
@@ -473,7 +488,7 @@ async function handleGPTRequest(
               hasResponse = true
               fullResponse += text
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
-              console.log(`[GPT] Chunk sent, length: ${text.length}`)  // Added logging for debugging empty responses
+              console.log(`[GPT] Chunk sent, length: ${text.length}`) // Added logging for debugging empty responses
             }
           }
 
@@ -486,8 +501,7 @@ async function handleGPTRequest(
           await saveAssistantMessage(
             projectId,
             fullResponse,
-            [searchResult],
-            thinkingContent,
+            [], // No search results
             controller,
             encoder,
             undefined,
@@ -520,15 +534,30 @@ async function handleOpenRouterRequest(
   modelName: string,
   isAutomated: boolean, // New
 ) {
-  if (!process.env.OPENROUTER_API_KEY) {
-    return createErrorStream("OpenRouter API key not configured. Please add OPENROUTER_API_KEY to your environment variables.")
+  let apiKey = process.env.OPENROUTER_API_KEY
+  try {
+    const [config] = await db.select().from(userModelConfigs).where(eq(userModelConfigs.userId, userId))
+
+    if (modelName.includes("deepseek") && config?.modelApiKeys?.deepseek) {
+      apiKey = config.modelApiKeys.deepseek
+    } else if (modelName.includes("gpt-oss") && config?.modelApiKeys?.gptoss) {
+      apiKey = config.modelApiKeys.gptoss
+    }
+  } catch (e) {
+    console.error("[OpenRouter] Failed to fetch custom API key:", e)
+  }
+
+  if (!apiKey) {
+    return createErrorStream(
+      "OpenRouter API key not configured. Please add OPENROUTER_API_KEY to your environment variables or add your API key in Settings.",
+    )
   }
 
   let openai: any
   try {
     const OpenAI = (await import("openai")).default
     openai = new OpenAI({
-      apiKey: process.env.OPENROUTER_API_KEY,
+      apiKey,
       baseURL: "https://openrouter.ai/api/v1",
     })
   } catch (e) {
@@ -537,19 +566,15 @@ async function handleOpenRouterRequest(
   }
 
   try {
-    const searchQuery = message
-    const searchResult = await doSearch(searchQuery)
-    console.log(`[OpenRouter] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
-
     const isUIRequest = !discussMode && UI_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
     console.log(`[OpenRouter] UI request detected: ${isUIRequest}`)
     const uiContext = isUIRequest
       ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
       : ""
 
-    const systemPrompt =
-      (discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext) +
-      `\n\nContext from web search: ${searchResult.results}`
+    const customKnowledgePrompt = await getCustomKnowledge(userId)
+
+    const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + uiContext + customKnowledgePrompt
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role,
@@ -558,7 +583,6 @@ async function handleOpenRouterRequest(
 
     const encoder = new TextEncoder()
     let fullResponse = ""
-    const thinkingContent = ""
 
     return new ReadableStream({
       async start(controller) {
@@ -594,8 +618,7 @@ async function handleOpenRouterRequest(
           await saveAssistantMessage(
             projectId,
             fullResponse,
-            [searchResult],
-            thinkingContent,
+            [], // No search results
             controller,
             encoder,
             undefined,
@@ -652,17 +675,15 @@ async function handleV0Request(
   }
 
   try {
-    const searchQuery = message
-    const searchResult = await doSearch(searchQuery)
-    console.log(`[v0] Search for "${searchQuery}": ${searchResult.results.substring(0, 100)}...`)
-
     const isUIRequest = UI_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
     console.log(`[v0] UI request detected: ${isUIRequest}`)
     const uiContext = isUIRequest
       ? "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/components/Hero.tsx) in 21st.dev style—ensure fenced blocks for each."
       : ""
 
-    const systemPrompt = SYSTEM_PROMPT + uiContext + `\n\nContext from web search: ${searchResult.results}`
+    const customKnowledgePrompt = await getCustomKnowledge(userId)
+
+    const systemPrompt = SYSTEM_PROMPT + uiContext + customKnowledgePrompt
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role,
@@ -671,7 +692,6 @@ async function handleV0Request(
 
     const encoder = new TextEncoder()
     let fullResponse = ""
-    const thinkingContent = ""
 
     return new ReadableStream({
       async start(controller) {
@@ -707,8 +727,7 @@ async function handleV0Request(
           await saveAssistantMessage(
             projectId,
             fullResponse,
-            [searchResult],
-            thinkingContent,
+            [], // No search results
             controller,
             encoder,
             undefined,
@@ -721,7 +740,8 @@ async function handleV0Request(
           let errorMsg = String(error)
           // Specific handling for v0 Premium requirement
           if (errorMsg.includes("Premium or Team plan required") || errorMsg.includes("403")) {
-            errorMsg = "v0 API requires a Premium or Team plan ($20/month). Upgrade at https://v0.dev/chat/settings/billing. Falling back to a basic response."
+            errorMsg =
+              "v0 API requires a Premium or Team plan ($20/month). Upgrade at https://v0.dev/chat/settings/billing. Falling back to a basic response."
             // Optional: Fallback to another model like gemini here if desired
           }
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMsg })}\n\n`))
@@ -737,12 +757,107 @@ async function handleV0Request(
   }
 }
 
+async function handleRunwareRequest(
+  history: any[],
+  message: string,
+  imageData: any,
+  projectId: string,
+  userId: string,
+  discussMode: boolean,
+  isAutomated: boolean, // New
+) {
+  if (discussMode) {
+    return createErrorStream("Image generation is not supported in discuss mode. Please switch to generation mode.")
+  }
+
+  if (!process.env.RUNWARE_API_KEY) {
+    return createErrorStream(
+      "Runware API key not configured. Please add RUNWARE_API_KEY to your environment variables.",
+    )
+  }
+
+  const encoder = new TextEncoder()
+  let fullResponse = ""
+
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        // Send initial progress message
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "Generating your image..." })}\n\n`))
+
+        const taskUUID = randomUUID()
+        const task = {
+          taskType: "imageInference",
+          taskUUID,
+          positivePrompt: message,
+          width: 1024,
+          height: 1024,
+          model: "runware:101@1",
+          numberResults: 1,
+          outputFormat: "JPG",
+          outputType: "URL", // Use URL to avoid large payloads
+          ttl: 86400, // 24 hours
+        }
+
+        const apiRes = await fetch("https://api.runware.ai/v1", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.RUNWARE_API_KEY}`,
+          },
+          body: JSON.stringify([task]),
+        })
+
+        if (!apiRes.ok) {
+          throw new Error(`Runware API error: ${apiRes.status} ${apiRes.statusText}`)
+        }
+
+        const apiData = await apiRes.json()
+        const imageInfo = apiData.data[0]
+        if (!imageInfo || !imageInfo.imageURL) {
+          throw new Error("No image URL in Runware response")
+        }
+
+        // Proxy the URL to avoid CORS/COEP issues
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+        const proxiedUrl = `${baseUrl}/api/proxy-image?url=${encodeURIComponent(imageInfo.imageURL)}`
+
+        fullResponse = `Here's your generated image based on the prompt: "${message}"\n\n![Generated Image](${proxiedUrl})`
+
+        // Send the final response text
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: fullResponse })}\n\n`))
+
+        console.log("[Runware] Image generated successfully with proxied URL")
+
+        await saveAssistantMessage(
+          projectId,
+          fullResponse,
+          [], // No search results
+          controller,
+          encoder,
+          undefined,
+          false,
+          discussMode,
+          isAutomated, // New
+        )
+      } catch (error) {
+        console.error("[Runware] Error:", error)
+        const errorMsg = `Failed to generate image: ${String(error)}`
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: errorMsg })}\n\n`))
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, projectId })}\n\n`))
+      } finally {
+        controller.close()
+      }
+    },
+  })
+}
+
 function createErrorStream(errorMsg: string): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
   return new ReadableStream({
     start(controller) {
       const fallbackText = errorMsg.includes("request failed")
-        ? `<Thinking>Basic fallback mode activated due to temp issue.</Thinking>\nResponse generated without full AI assistance. Search and steps will retry next time.`
+        ? `Basic fallback mode activated due to temp issue.`
         : errorMsg
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: fallbackText })}\n\n`))
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`))
@@ -755,7 +870,6 @@ async function saveAssistantMessage(
   projectId: string,
   fullResponse: string,
   searchQueries: any[],
-  thinkingContent: string,
   controller: any,
   encoder: any,
   uploadedFiles?: any[],
@@ -779,7 +893,6 @@ async function saveAssistantMessage(
         role: "assistant",
         content: cleanContent,
         hasArtifact,
-        thinking: thinkingContent || null,
         searchQueries: searchQueries.length > 0 ? searchQueries : null,
         isAutomated, // New
       })
@@ -849,15 +962,11 @@ async function saveAssistantMessage(
 }
 
 function extractCodeBlocks(content: string) {
-  const cleanContent = content
-    .replace(/<Thinking>[\s\S]*?<\/Thinking>/gi, "")
-    .replace(/<search>[\s\S]*?<\/search>/gi, "")
-
   const codeBlockRegex = /```(\w+)\s+file="([^"]+)"\n([\s\S]*?)```/g
   const blocks: Array<{ language: string; path: string; content: string }> = []
   let match
 
-  while ((match = codeBlockRegex.exec(cleanContent)) !== null) {
+  while ((match = codeBlockRegex.exec(content)) !== null) {
     blocks.push({
       language: match[1],
       path: match[2],
@@ -869,9 +978,19 @@ function extractCodeBlocks(content: string) {
 }
 
 function removeCodeBlocks(content: string) {
-  return content
-    .replace(/<Thinking>[\s\S]*?<\/Thinking>/gi, "")
-    .replace(/<search>[\s\S]*?<\/search>/gi, "")
-    .replace(/```(\w+)\s+file="([^"]+)"\n[\s\S]*?```/g, "")
-    .trim()
+  return content.replace(/```(\w+)\s+file="([^"]+)"\n[\s\S]*?```/g, "").trim()
+}
+
+// Helper function to fetch custom knowledge
+async function getCustomKnowledge(userId: string): Promise<string> {
+  try {
+    const [customKnowledge] = await db.select().from(userCustomKnowledge).where(eq(userCustomKnowledge.userId, userId))
+
+    if (customKnowledge && customKnowledge.promptContent) {
+      return `\n\n### USER CUSTOM KNOWLEDGE ###\nThe user has provided the following custom instructions that you MUST follow in all generations:\n\n**${customKnowledge.promptName}**\n${customKnowledge.promptContent}\n\n### END CUSTOM KNOWLEDGE ###\n`
+    }
+  } catch (error) {
+    console.error("[API/Chat] Failed to fetch custom knowledge:", error)
+  }
+  return ""
 }

@@ -244,7 +244,7 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Chat Panel */}
         <div
-          className={`flex flex-col bg-[#f1f1f1c7] overflow-hidden ${isResizingState ? "transition-none" : "transition-all duration-200"}`}
+          className={`flex flex-col overflow-hidden ${isResizingState ? "transition-none" : "transition-all duration-200"}`}
           style={{ width: leftWidth }}
         >
           <div

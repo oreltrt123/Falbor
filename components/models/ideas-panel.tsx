@@ -15,15 +15,15 @@ export function IdeasPanel({ onSelectIdea }: IdeasPanelProps) {
   const currentCategory = categories.find((cat) => cat.name === selectedCategory)
 
   return (
-    <div className="bg-[#1f1e1e] border-3 border-[#272727] border-t-0 rounded-b-[13px] p-4 max-h-[400px] overflow-y-auto">
+    <div className="bg-[#ffffff] border-1 border-[#dbd9d9] border-t-0 rounded-b-[13px] p-4 max-h-[400px] overflow-y-auto">
       <div className="flex gap-1 mb-4 overflow-x-hidden chat-messages-scroll">
         {categories.map((cat) => (
           <Button
             key={cat.name}
             variant={selectedCategory === cat.name ? "default" : "ghost"}
             onClick={() => setSelectedCategory(cat.name)}
-            className={`h-6 px-1.5 text-xs bg-[#2f2f30] text-white hover:text-white border-[#272727] hover:bg-[#313135] ${
-                selectedCategory === cat.name ? "bg-[#ff8c001f] hover:bg-[#ff8c0025]" : ""
+            className={`h-6 px-1.5 text-xs bg-[#e4e4e494] hover:bg-[#e7e7e7] text-black border-[#272727] ${
+                selectedCategory === cat.name ? "bg-[#e4e4e4] hover:bg-[#e4e4e4]" : ""
             }`}
           >
             {cat.name}
@@ -37,9 +37,8 @@ export function IdeasPanel({ onSelectIdea }: IdeasPanelProps) {
             variant="ghost"
             onClick={() => onSelectIdea(idea.prompt)}
             className="w-full justify-start text-left 
-            p-2 h-auto bg-[#30303052] border-none
-            hover:bg-[#30303067] transition-colors text-white/70
-            hover:text-white text-xs"
+            p-2 h-auto bg-[#e4e4e494] hover:bg-[#e7e7e7] text-black border-none
+            transition-colors text-xs"
           >
             {idea.title}
           </Button>

@@ -5,10 +5,12 @@ import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "re
 import { useRouter } from "next/navigation"
 import { useUser } from "@clerk/nextjs"
 import { Button } from "@/components/ui/button"
-import { ChevronDown, Loader } from "lucide-react"
+import { ChevronDown, Loader, X, Mic, Plus, Circle } from "lucide-react"
 import type { Message } from "@/config/schema"
 import Link from "next/link"
-import { PricingModal } from "@/components/models/PricingModal" // New import
+import { PricingModal } from "@/components/models/PricingModal"
+import { FileModal } from "@/components/models/FileModal"
+import { MagicWandIcon } from "@radix-ui/react-icons"
 
 interface ChatInputProps {
   isAuthenticated: boolean
@@ -18,7 +20,7 @@ interface ChatInputProps {
   initialModel?: string
   connected?: boolean
   onCloseIdeas?: () => void
-  isAutomated?: boolean // New: For cron auto-chats; skips credits
+  isAutomated?: boolean
 }
 
 interface CreditsData {
@@ -26,7 +28,7 @@ interface CreditsData {
   secondsUntilNextRegen: number
   pendingGift?: number
   pendingMonthly?: number
-  isPremium: boolean // Updated: Include premium status
+  isPremium: boolean
 }
 
 export interface ChatInputRef {
@@ -40,7 +42,7 @@ interface ModelOption {
   soon?: string
 }
 
-export type ModelType = "gemini" | "claude" | "gpt" | "deepseek" | "gptoss" // | "grok" | "v0" 
+export type ModelType = "gemini" | "claude" | "gpt" | "deepseek" | "gptoss" | "runware"
 
 const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInputImpl(
   {
@@ -51,7 +53,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     initialModel = "gemini",
     connected = false,
     onCloseIdeas,
-    isAutomated = false, // New
+    isAutomated = false,
   },
   ref,
 ) {
@@ -61,29 +63,119 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   const [isFocused, setIsFocused] = useState(false)
   const [selectedImage, setSelectedImage] = useState<{ data: string; mimeType: string } | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; content: string; type: string }>>([])
   const [creditsData, setCreditsData] = useState<CreditsData | null>(null)
   const [timeLeft, setTimeLeft] = useState(0)
   const [selectedModel, setSelectedModel] = useState<ModelType>(initialModel as ModelType)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [isDiscussMode, setIsDiscussMode] = useState(false)
-  const [showPricingModal, setShowPricingModal] = useState(false) // New: Modal state
+  const [showPricingModal, setShowPricingModal] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<{ name: string; content: string } | null>(null)
+  const [enabledModels, setEnabledModels] = useState<ModelType[]>([
+    "gemini",
+    "claude",
+    "gpt",
+    "deepseek",
+    "gptoss",
+    "runware",
+  ])
+  const [isListening, setIsListening] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const recognitionRef = useRef<any>(null)
+  const lastTranscriptRef = useRef("")
+  const streamRef = useRef<MediaStream | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const animationRef = useRef<number | null>(null)
   const router = useRouter()
   const { user, isLoaded } = useUser()
 
   const modelOptions: Record<ModelType, ModelOption> = {
-    gemini: { label: "Gemini 2.0", icon: "/icons/gemini.png", color: "text-blue-400" },
+    gemini: { label: "Gemini 3 Pro", icon: "/icons/gemini.png", color: "text-blue-400" },
     claude: { label: "Claude Sonnet 4.5", icon: "/icons/claude.png", color: "text-purple-400" },
     gpt: { label: "GPT-5", icon: "/icons/openai.png", color: "text-green-400" },
-    // v0: { label: "v0", icon: "/icons/logoV0.png", color: "text-orange-400" },
-    // grok: { label: "Grok-3", icon: "/icons/grok.png", color: "text-red-400", soon: "SOON" },
     deepseek: { label: "Deepseek R3", icon: "/icons/deepseek.png", color: "text-teal-400" },
     gptoss: { label: "GPT-OSS 20B", icon: "/icons/openai.png", color: "text-green-400" },
+    runware: { label: "Runware AI Images", icon: "/icons/runware.png", color: "text-orange-400" },
   }
+
+  const drawVisualizer = () => {
+    const canvas = canvasRef.current
+    if (!canvas || !analyserRef.current) {
+      if (animationRef.current) {
+        animationRef.current = requestAnimationFrame(drawVisualizer)
+      }
+      return
+    }
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const analyser = analyserRef.current
+    const bufferLength = analyser.frequencyBinCount
+    const dataArray = new Uint8Array(bufferLength)
+
+    analyser.getByteFrequencyData(dataArray)
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    const barWidth = (canvas.width / bufferLength) * 2.5
+    let barHeight
+    let x = 0
+
+    for (let i = 0; i < bufferLength; i++) {
+      barHeight = (dataArray[i] / 255) * canvas.height
+
+      ctx.fillStyle = `rgb(${barHeight + 100}, 50, 50)`
+      ctx.fillRect(x, canvas.height - barHeight / 2, barWidth, barHeight / 2)
+
+      x += barWidth + 1
+    }
+
+    animationRef.current = requestAnimationFrame(drawVisualizer)
+  }
+
+  useEffect(() => {
+    if (isListening && canvasRef.current) {
+      const canvas = canvasRef.current
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = canvas.offsetWidth * dpr
+      canvas.height = canvas.offsetHeight * dpr
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.scale(dpr, dpr)
+      }
+      drawVisualizer()
+    } else if (!isListening && animationRef.current) {
+      cancelAnimationFrame(animationRef.current)
+      animationRef.current = null
+    }
+  }, [isListening])
+
+  useEffect(() => {
+    const fetchEnabledModels = async () => {
+      if (!user?.id || !isLoaded) return
+      try {
+        const res = await fetch("/api/user/model-config")
+        if (res.ok) {
+          const data = await res.json()
+          setEnabledModels(data.enabledModels || ["gemini", "claude", "gpt", "deepseek", "gptoss", "runware"])
+          // If current selected model is disabled, switch to first enabled model
+          if (!data.enabledModels.includes(selectedModel)) {
+            setSelectedModel(data.enabledModels[0] || "gemini")
+          }
+        }
+      } catch (err) {
+        console.error("[v0] Failed to fetch enabled models:", err)
+      }
+    }
+    fetchEnabledModels()
+  }, [user?.id, isLoaded])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -147,6 +239,32 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     reader.readAsDataURL(file)
   }
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+
+    const nonImageFiles = files.filter((file) => !file.type.startsWith("image/"))
+
+    nonImageFiles.forEach((file) => {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const content = event.target?.result as string
+        setUploadedFiles((prev) => [
+          ...prev,
+          {
+            name: file.name,
+            content,
+            type: file.type || "text/plain",
+          },
+        ])
+      }
+      reader.readAsText(file)
+    })
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+  }
+
   const handleImprovePrompt = async () => {
     if (!message.trim() || !projectId || isImproving) return
     setIsImproving(true)
@@ -194,6 +312,94 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     }
   }
 
+  const stopVoiceInput = () => {
+    recognitionRef.current?.stop()
+    setIsListening(false)
+    recognitionRef.current = null
+    lastTranscriptRef.current = ""
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+    analyserRef.current = null
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current)
+      animationRef.current = null
+    }
+  }
+
+  const handleVoiceToggle = async () => {
+    if (isListening) {
+      stopVoiceInput()
+      return
+    }
+
+    if (!("SpeechRecognition" in window || "webkitSpeechRecognition" in window)) {
+      alert("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.")
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      const audioContext = new AudioContext()
+      audioContextRef.current = audioContext
+
+      const source = audioContext.createMediaStreamSource(stream)
+      const analyser = audioContext.createAnalyser()
+      analyserRef.current = analyser
+      analyser.fftSize = 256
+      source.connect(analyser)
+
+      const SpeechRecognitionConstructor = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
+      const recognition = new SpeechRecognitionConstructor()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = "en-US"
+
+      recognition.onresult = (event: any) => {
+        let transcript = ""
+        for (let i = 0; i < event.results.length; ++i) {
+          transcript += event.results[i][0].transcript
+        }
+
+        const added = transcript.substring(lastTranscriptRef.current.length)
+        if (added) {
+          setMessage((prev) => prev + added)
+          setTimeout(() => {
+            textareaRef.current?.focus()
+            if (textareaRef.current) {
+              textareaRef.current.scrollTop = textareaRef.current.scrollHeight
+            }
+          }, 0)
+        }
+        lastTranscriptRef.current = transcript
+      }
+
+      recognition.onerror = (event: any) => {
+        console.error("Voice recognition error:", event.error)
+        stopVoiceInput()
+      }
+
+      recognition.onend = () => {
+        stopVoiceInput()
+      }
+
+      recognition.start()
+      recognitionRef.current = recognition
+      lastTranscriptRef.current = ""
+      setIsListening(true)
+    } catch (err) {
+      console.error("Failed to start voice recognition:", err)
+      alert("Could not access microphone. Please check permissions and try again.")
+    }
+  }
+
   useEffect(() => {
     if (projectId && selectedModel !== initialModel && !modelOptions[selectedModel]?.soon) {
       const saveModel = async () => {
@@ -214,10 +420,14 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isLoading) {
-      // Abort the ongoing request
       abortControllerRef.current?.abort()
       abortControllerRef.current = null
       setIsLoading(false)
+      return
+    }
+
+    if (isListening) {
+      stopVoiceInput()
       return
     }
 
@@ -229,12 +439,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
       return
     }
 
-    // if (isDiscussMode && selectedModel === "v0") {
-    //   alert("Discuss mode is not supported with v0. Please switch to another model.")
-    //   return
-    // }
-
-    if (isLoaded && creditsData && !creditsData.isPremium && creditsData.credits <= 0 && !isAutomated) { // Updated: Only block non-premium
+    if (isLoaded && creditsData && !creditsData.isPremium && creditsData.credits <= 0 && !isAutomated) {
       alert("Insufficient credits. Upgrade to Premium for more!")
       return
     }
@@ -243,7 +448,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     const userMessage = message
 
     try {
-      if (!isAutomated) { // Deduct only manual
+      if (!isAutomated) {
         const deductRes = await fetch("/api/user/credits", {
           method: "POST",
         })
@@ -268,6 +473,8 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
       setMessage("")
       setSelectedImage(null)
       setImagePreview(null)
+      const filesToSend = uploadedFiles
+      setUploadedFiles([])
 
       if (projectId && onNewMessage) {
         const tempUser: Message = {
@@ -309,9 +516,10 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               projectId,
               message: userMessage,
               imageData: selectedImage,
+              uploadedFiles: filesToSend.length > 0 ? filesToSend : null,
               model: selectedModel,
               discussMode: isDiscussMode,
-              isAutomated, // New: Pass flag
+              isAutomated,
             }),
             signal: abortControllerRef.current.signal,
           })
@@ -327,7 +535,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
           const decoder = new TextDecoder()
           let accumulated = ""
-          let lineBuffer = "" // Added buffer to handle incomplete SSE lines
+          let lineBuffer = ""
           let streamError = false
 
           while (true) {
@@ -396,7 +604,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             }
           }
         } catch (fetchError) {
-          if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          if (fetchError instanceof Error && fetchError.name === "AbortError") {
             console.log("[v0] Request aborted by user")
           } else {
             console.error("[v0] Fetch error:", fetchError)
@@ -414,6 +622,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             projectId,
             message: userMessage,
             imageData: selectedImage,
+            uploadedFiles: uploadedFiles.length > 0 ? uploadedFiles : null,
             model: selectedModel,
             discussMode: isDiscussMode,
             isAutomated,
@@ -429,7 +638,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             message: userMessage,
             model: selectedModel,
             discussMode: isDiscussMode,
-            isAutomated, // New
+            isAutomated,
           }),
         })
         const { projectId: newId } = await res.json()
@@ -501,8 +710,34 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
   return (
     <div className="">
+      {uploadedFiles.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {uploadedFiles.map((file, idx) => (
+            <div
+              key={idx}
+              className="flex items-center gap-1 bg-[#e4e4e4] hover:bg-[#d4d4d4] rounded-md transition-colors"
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedFile({ name: file.name, content: file.content })}
+                className="px-3 py-2 text-sm text-black/75 truncate max-w-[200px]"
+              >
+                {file.name}
+              </button>
+              <button
+                type="button"
+                onClick={() => setUploadedFiles((prev) => prev.filter((_, i) => i !== idx))}
+                className="pr-2 text-black/50 hover:text-black/75"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {imagePreview && (
-        <div className="relative inline-block">
+        <div className="relative inline-block mb-2">
           <img
             src={imagePreview || "/placeholder.svg"}
             alt="Upload preview"
@@ -521,10 +756,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
         </div>
       )}
 
-      <form
-        onSubmit={handleSubmit}
-        className={`relative bg-[#ffffff] border border-[#d6d6d6] p-1 ${formRoundedClass}`} //${formBorderClass}
-      >
+      <form onSubmit={handleSubmit} className={`relative bg-[#ffffff] border border-[#dbd9d9] p-1 ${formRoundedClass}`}>
         <textarea
           ref={textareaRef}
           value={message}
@@ -534,112 +766,159 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
           onBlur={() => setIsFocused(false)}
           placeholder={isDiscussMode ? "Discuss anything..." : placeholder}
           className="w-full min-h-[100px] max-h-[150px] resize-none bg-transparent text-black placeholder:text-muted-foreground
-                     px-3 pt-3 pb-10 text-base outline-none overflow-y-auto field-sizing-content chat-messages-scroll
+                     px-3 pt-3 pb-10 text-base outline-none overflow-y-auto field-sizing-content chat-messages-scroll font-light
                      disabled:cursor-not-allowed disabled:opacity-50"
           style={{ scrollbarWidth: "thin" }}
           disabled={isLoading}
         />
 
-        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between p-2 bg-[#ffff] rounded-[9px]">
-          <div className="flex gap-1 items-center">
-            <Button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="px-2 py-2 text-sm text-white/75 hover:text-white hover:bg-[#e4e4e4] h-auto ml-1"
-              title="Upload image"
-              disabled={isLoading}
-              variant="ghost"
-              size="sm"
-            >
-              <img width={13} height={13} src="/icons/plus_light.png" alt="" />
-            </Button>
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-
-            <Button
-              type="button"
-              onClick={handleImprovePrompt}
-              disabled={isImproving || !message.trim() || !projectId || isLoading}
-              className="px-2 py-1 text-sm text-white/75 hover:text-white hover:bg-[#e4e4e4] h-auto ml-1"
-              title="Improve prompt"
-              variant="ghost"
-              size="sm"
-            >
-              {!isImproving ? (
-                <img width={16} height={16} src="/icons/enhance_prompt.png" alt="" />
-              ) : (
-                <span className="ml-1 animate-pulse">
-                  <Loader />
-                </span>
-              )}
-            </Button>
-
-            <div className="relative" ref={dropdownRef}>
+        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between p-2 bg-[#ffff] rounded-[19px]">
+          {isListening ? (
+            <div className="flex-1 relative h-10 mr-2 p-[-14px]">
+              <canvas
+                ref={canvasRef}
+                className="absolute inset-0 w-full h-full bg-gray-100 rounded"
+              />
+            </div>
+          ) : (
+            <div className="flex gap-1 items-center">
               <Button
                 type="button"
-                onClick={() => setShowModelDropdown(!showModelDropdown)}
-                className="px-2 py-1 text-sm text-black/75 hover:text-white hover:bg-[#e4e4e4] h-auto ml-1"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-2 py-2 text-sm text-black/75 hover:text-black hover:bg-[#e4e4e48c] h-auto ml-1"
+                title="Upload files"
                 disabled={isLoading}
                 variant="ghost"
                 size="sm"
               >
-                <img
-                  src={modelOptions[selectedModel].icon || "/placeholder.svg"}
-                  alt=""
-                  className={`w-3.5 h-3.5 ${modelOptions[selectedModel].color}`}
-                />
-                <span className="text-black/75">{modelOptions[selectedModel].label}</span>
-                {modelOptions[selectedModel].soon && (
-                  <span className="text-xs bg-[#333333e7] text-white/70 p-1 rounded-4xl ml-1">SOON</span>
-                )}
-                <ChevronDown className="w-3 h-3 text-black/50" />
+                <Plus className="w-4 h-4" />
               </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".ts,.tsx,.js,.jsx,.py,.css,.html,.json,.md,.txt,image/*"
+                multiple
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || [])
+                  const imageFile = files.find((f) => f.type.startsWith("image/"))
 
-              {showModelDropdown && (
-                <div className="absolute left-0 bottom-0 translate-y-1 bg-[#ffffff] border border-[#e0e0e0c9] rounded-md overflow-hidden p-1 z-50 min-w-[180px]">
-                  {Object.entries(modelOptions).map(([key, option]) => {
-                    const { label, icon, color, soon } = option
-                    const isComingSoon = !!soon
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => {
-                          if (isComingSoon) {
-                            alert(`${label} is coming soon!`)
-                            return
-                          }
-                          setSelectedModel(key as ModelType)
-                          setShowModelDropdown(false)
-                        }}
-                        disabled={isComingSoon}
-                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4] ${
-                          selectedModel === key ? "font-bold" : ""
-                        } ${isComingSoon ? "opacity-50 cursor-not-allowed" : ""}`}
-                      >
-                        <img src={icon || "/placeholder.svg"} alt="" className={`w-3.5 h-3.5 ${color}`} />
-                        <span className="text-black/75">{label}</span>
-                        {soon && <span className="text-xs text-white/70 bg-[#333333e7] w-[35%] rounded-4xl">SOON</span>}
-                        {selectedModel === key && !isComingSoon && <span className="ml-auto text-green-400">✓</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-            {connected && (
+                  if (imageFile) {
+                    const reader = new FileReader()
+                    reader.onload = (ev) => {
+                      const base64 = ev.target?.result as string
+                      setSelectedImage({ data: base64.split(",")[1], mimeType: imageFile.type })
+                      setImagePreview(base64)
+                    }
+                    reader.readAsDataURL(imageFile)
+                  }
+
+                  handleFileUpload(e)
+                }}
+                className="hidden"
+              />
+
               <Button
                 type="button"
+                onClick={handleVoiceToggle}
+                className="px-2 py-2 text-sm text-black/75 hover:text-black hover:bg-[#e4e4e48c] h-auto ml-1"
+                title="Voice input"
+                disabled={isLoading}
                 variant="ghost"
                 size="sm"
-                onClick={onCloseIdeas}
-                className="px-2 py-2 text-sm text-black/75 hover:text-black hover:bg-[#e4e4e4] h-auto ml-1"
               >
-                Close
+                <Mic className="w-4 h-4" />
               </Button>
-            )}
-          </div>
 
-          {/* Updated: Conditional send/upgrade button */}
+              <Button
+                type="button"
+                onClick={handleImprovePrompt}
+                disabled={isImproving || !message.trim() || !projectId || isLoading}
+                className="px-2 py-2 text-sm text-black/75 hover:text-black hover:bg-[#e4e4e48c] h-auto ml-1"
+                title="Improve prompt"
+                variant="ghost"
+                size="sm"
+              >
+                {!isImproving ? (
+                 <MagicWandIcon />
+                ) : (
+                  <span className="ml-1 animate-pulse">
+                    <Loader />
+                  </span>
+                )}
+              </Button>
+
+              <div className="relative" ref={dropdownRef}>
+                <Button
+                  type="button"
+                  onClick={() => setShowModelDropdown(!showModelDropdown)}
+                  className="px-2 py-1 text-sm text-black/75 hover:text-white hover:bg-[#e4e4e48c] h-auto ml-1"
+                  disabled={isLoading}
+                  variant="ghost"
+                  size="sm"
+                >
+                  <img
+                    src={modelOptions[selectedModel].icon || "/placeholder.svg"}
+                    alt=""
+                    className={`w-3.5 h-3.5 ${modelOptions[selectedModel].color}`}
+                  />
+                  <span className="text-black/75">{modelOptions[selectedModel].label}</span>
+                  {modelOptions[selectedModel].soon && (
+                    <span className="text-xs bg-[#333333e7] text-white/70 p-1 rounded-4xl ml-1">SOON</span>
+                  )}
+                  <ChevronDown className="w-3 h-3 text-black/50" />
+                </Button>
+
+                {showModelDropdown && (
+                  <div className="absolute left-0 bottom-0 translate-y-1 bg-[#ffffff] border border-[#e0e0e0c9] rounded-md overflow-hidden p-1 z-50 min-w-[220px]">
+                    {Object.entries(modelOptions).map(([key, option]) => {
+                      // Only show enabled models
+                      if (!enabledModels.includes(key as ModelType)) {
+                        return null
+                      }
+
+                      const { label, icon, color, soon } = option
+                      const isComingSoon = !!soon
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => {
+                            if (isComingSoon) {
+                              alert(`${label} is coming soon!`)
+                              return
+                            }
+                            setSelectedModel(key as ModelType)
+                            setShowModelDropdown(false)
+                          }}
+                          disabled={isComingSoon}
+                          className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4] ${
+                            selectedModel === key ? "" : ""
+                          } ${isComingSoon ? "opacity-50 cursor-not-allowed" : ""}`}
+                        >
+                          <img src={icon || "/placeholder.svg"} alt="" className={`w-3.5 h-3.5 ${color}`} />
+                          <span className="text-black/75">{label}</span>
+                          {soon && <span className="text-xs text-white/70 bg-[#333333e7] w-[35%] rounded-4xl">SOON</span>}
+                          {selectedModel === key && !isComingSoon && <span className="ml-auto text-black">✓</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              {connected && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={onCloseIdeas}
+                  className="px-2 py-1 text-sm text-black/75 hover:text-black hover:bg-[#e4e4e48c] h-auto ml-1"
+                >
+                  Close
+                </Button>
+              )}
+            </div>
+          )}
+
           {showUpgradeButton ? (
             <Button
               type="button"
@@ -652,13 +931,16 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             </Button>
           ) : (
             <Button
-              type="submit"
+              type={isListening ? "button" : "submit"}
+              onClick={isListening ? stopVoiceInput : undefined}
               size="icon"
-              className="h-7 w-7 p-1.5 bg-[#2f2f30]"
-              disabled={!isLoading && (!message.trim() || !isAuthenticated || !!modelOptions[selectedModel]?.soon)}
+              className={`h-7 w-7 p-1.5 rounded-md ${isListening ? "bg-red-500 hover:bg-red-600" : "bg-[#0099FF]"}`}
+              disabled={isLoading || (!isListening && (!message.trim() || !isAuthenticated || !!modelOptions[selectedModel]?.soon))}
             >
               {isLoading ? (
                 <Loader className="w-4 h-4 animate-spin text-white" />
+              ) : isListening ? (
+                <Circle className="w-4 h-4 text-white" />
               ) : (
                 <img width={16} height={16} src="/mouse-cursor.png" alt="" />
               )}
@@ -667,12 +949,16 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
         </div>
       </form>
 
-      {/* New: Pricing Modal */}
-      <PricingModal
-        open={showPricingModal}
-        onClose={() => setShowPricingModal(false)}
-        onSuccess={refetchCredits}
-      />
+      <PricingModal open={showPricingModal} onClose={() => setShowPricingModal(false)} onSuccess={refetchCredits} />
+
+      {selectedFile && (
+        <FileModal
+          open={!!selectedFile}
+          onClose={() => setSelectedFile(null)}
+          fileName={selectedFile.name}
+          fileContent={selectedFile.content}
+        />
+      )}
     </div>
   )
 })

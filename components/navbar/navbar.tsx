@@ -230,6 +230,9 @@ export function Navbar() {
                 Projects
               </Link>
             )}
+              <Link href={"/about"} className="text-white hover:text-[#f0f0f0] ml-6">
+                About
+              </Link>
           </div>
           <div className="flex items-center gap-4">
             {user ? (

@@ -6,6 +6,9 @@ export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: text("user_id").notNull(),
   title: text("title").notNull(),
+  description: text("description"),
+  coverImage: text("cover_image"),
+  isPublic: boolean("is_public").default(false).notNull(),
   isGithubClone: boolean("is_github_clone").default(false).notNull(),
   githubUrl: text("github_url"),
   deploymentConfig: jsonb("deployment_config")
@@ -103,6 +106,28 @@ export const userCredits = pgTable("user_credits", {
   stripeCustomerId: text("stripe_customer_id"),
 })
 
+export const userModelConfigs = pgTable("user_model_configs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  enabledModels: jsonb("enabled_models")
+    .$type<string[]>()
+    .notNull()
+    .default(["gemini", "claude", "gpt", "deepseek", "gptoss", "runware"]),
+  modelApiKeys: jsonb("model_api_keys")
+    .$type<{
+      gemini?: string
+      claude?: string
+      gpt?: string
+      deepseek?: string
+      gptoss?: string
+      runware?: string
+    } | null>()
+    .default(null),
+  customCreditsAdded: integer("custom_credits_added").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
 export const deployments = pgTable("deployments", {
   id: uuid("id").defaultRandom().primaryKey(),
   projectId: uuid("project_id")
@@ -124,20 +149,54 @@ export const figmaTokens = pgTable("figma_tokens", {
   expiresAt: timestamp("expires_at").notNull(),
 })
 
-// Automation settings table
-export const userAutomations = pgTable("user_automations", {
-  userId: text("user_id").primaryKey(),
-  selectedModel: text("selected_model").default("gemini").notNull(),
-  maxMessages: integer("max_messages").default(2).notNull(),
-  isActive: boolean("is_active").default(false).notNull(),
-  activatedAt: timestamp("activated_at"), // When user clicked "activate"
-  nextRunAt: timestamp("next_run_at"), // Calculated: activatedAt + 5 mins for first, then daily
-  lastRun: timestamp("last_run"),
+export const userAutomations = pgTable(
+  "user_automations",
+  {
+    userId: text("user_id").primaryKey(),
+    selectedModel: text("selected_model").default("gemini").notNull(),
+    maxMessages: integer("max_messages").default(2).notNull(),
+    isActive: boolean("is_active").default(false).notNull(),
+    activatedAt: timestamp("activated_at"),
+    nextRunAt: timestamp("next_run_at"),
+    lastRun: timestamp("last_run"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [check("max_messages_check", sql`${table.maxMessages} >= 2`)],
+)
+
+export const serverConnections = pgTable("server_connections", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(),
+  accessToken: text("access_token").notNull(),
+  projectRef: text("project_ref").notNull(),
+  projectName: text("project_name"),
+  databaseUrl: text("database_url"),
+  apiUrl: text("api_url"),
+  isActive: boolean("is_active").default(true).notNull(),
+  schema: jsonb("schema").$type<{
+    tables?: Array<{
+      name: string
+      columns: Array<{ name: string; type: string; nullable: boolean }>
+      rowCount?: number
+    }>
+  } | null>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-}, (table) => [
-  check("max_messages_check", sql`${table.maxMessages} >= 2`),
-])
+})
+
+export const userCustomKnowledge = pgTable("user_custom_knowledge", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  promptName: text("prompt_name").notNull(),
+  promptContent: text("prompt_content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
 
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
@@ -155,5 +214,11 @@ export type UserCredits = typeof userCredits.$inferSelect
 export type NewUserCredits = typeof userCredits.$inferInsert
 export type Deployment = typeof deployments.$inferSelect
 export type NewDeployment = typeof deployments.$inferInsert
+export type ServerConnection = typeof serverConnections.$inferSelect
+export type NewServerConnection = typeof serverConnections.$inferInsert
 export type UserAutomation = typeof userAutomations.$inferSelect
 export type NewUserAutomation = typeof userAutomations.$inferInsert
+export type UserCustomKnowledge = typeof userCustomKnowledge.$inferSelect
+export type NewUserCustomKnowledge = typeof userCustomKnowledge.$inferInsert
+export type UserModelConfig = typeof userModelConfigs.$inferSelect
+export type NewUserModelConfig = typeof userModelConfigs.$inferInsert

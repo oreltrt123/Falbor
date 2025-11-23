@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "AI Website Builder",
+  title: "Falbor",
   description: "Build websites with AI",
     generator: 'v0.app'
 }

@@ -79,7 +79,8 @@ export function PricingModal({ open, onClose, onSuccess }: PricingModalProps) {
         .then((data) => {
           console.log("API Response:", data)
           if (data.client_secret) {
-            console.log('Setting clientSecret: Yes (pi_...)')
+            console.log('Setting clientSecret: Yes (pi_...)') // FIXED: Extra log for secret validity
+            console.log('Client secret preview:', data.client_secret.substring(0, 10) + '...') // Safe preview
             setClientSecret(data.client_secret)
             setIntentType(data.intentType || 'payment')
             setIsTrial(data.isTrial || false)
@@ -122,7 +123,7 @@ export function PricingModal({ open, onClose, onSuccess }: PricingModalProps) {
         ) : error ? (
           <div className="text-red-500 text-sm text-center mb-4">{error}</div>
         ) : clientSecret ? (
-          <Elements stripe={getStripePromise()} options={options}>
+          <Elements stripe={getStripePromise()} options={options} key={clientSecret || 'default'}> {/* FIXED: key forces remount on secret load */}
             <CheckoutForm 
               intentType={intentType} 
               isTrial={isTrial}
@@ -262,11 +263,15 @@ function CheckoutForm({ intentType, isTrial, invoiceId, onSuccess, onClose }: Ch
             // },
           }}
           onReady={(element) => {
-            console.log('PaymentElement ready and mounted!')
+            console.log('PaymentElement ready and mounted!') // FIXED: This log will confirm if it fires
             setIsPaymentReady(true)
             if (paymentElementRef.current) {
               console.log('Payment container dimensions:', paymentElementRef.current.getBoundingClientRect())
             }
+          }}
+          onLoadError={(event) => { // FIXED: New handler for mount errors
+            console.error('PaymentElement load error:', event)
+            setError('Payment form failed to load. Check console for details.')
           }}
           onChange={(event) => {
             console.log('PaymentElement change:', event.complete ? 'Valid' : 'Incomplete')
@@ -282,11 +287,11 @@ function CheckoutForm({ intentType, isTrial, invoiceId, onSuccess, onClose }: Ch
       >
         {buttonText}
       </button>
-      {process.env.NODE_ENV === 'development' && (
+      {/* {process.env.NODE_ENV === 'development' && (
         <div className="text-xs text-gray-400 text-center">
           Debug: Stripe ready: {stripe ? 'Yes' : 'No'} | Elements ready: {elements ? 'Yes' : 'No'} | Form ready: {isPaymentReady ? 'Yes' : 'No'}
         </div>
-      )}
+      )} */}
     </form>
   )
 }
