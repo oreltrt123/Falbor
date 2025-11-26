@@ -9,7 +9,7 @@ interface SidebarTabsProps {
 
 export function SidebarTabs({ sidebarView, setSidebarView }: SidebarTabsProps) {
   return (
-    <div className="flex items-end pb-[5px] pt-1 pl-1 border-[#4444442d] border-b">
+    <div className="flex items-end pb-[5px] pt-2 pl-1 border-[#4444442d] border-b">
       <button
         onClick={() => setSidebarView("files")}
         className={cn(

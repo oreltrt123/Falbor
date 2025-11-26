@@ -2,6 +2,11 @@
 import { Loader, Loader2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 
+type ProjectFile = {
+  path: string
+  content: string
+}
+
 interface SearchResult {
   path: string
   line: number
@@ -16,7 +21,7 @@ interface SearchSidebarProps {
   isSearching: boolean
   highlightMatch: (text: string, matches: { start: number; end: number }[]) => any
   onResultClick: (path: string) => void
-  files: Array<{ path: string; content: string; language: string }>
+  files: ProjectFile[]
 }
 
 export function SearchSidebar({

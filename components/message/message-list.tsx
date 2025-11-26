@@ -5,7 +5,7 @@ import type React from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Loader2, ChevronDown, Brain, FileText, Folder, CheckCircle2, XCircle, Loader, List, AlertCircle, Bug, Code } from 'lucide-react'
+import { Loader2, ChevronDown, Brain, FileText, Folder, CheckCircle2, XCircle, Loader, List, AlertCircle, Bug, Code, Copy, Pencil, RefreshCw } from 'lucide-react'
 import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism"
@@ -27,6 +27,9 @@ interface MessageListProps {
   messages: Message[]
   onArtifactClick?: (artifactId: string) => void
   onCodeExtracted?: (files: Array<{ filename: string; code: string; language: string }>) => void
+  onCopy?: (content: string) => void
+  onEdit?: (id: string, content: string) => void
+  onRegenerate?: (id: string) => void
 }
 
 function parseAIResponse(content: string) {
@@ -147,7 +150,7 @@ function parseAIResponse(content: string) {
   return sections
 }
 
-export function MessageList({ messages, onArtifactClick, onCodeExtracted }: MessageListProps) {
+export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy, onEdit, onRegenerate }: MessageListProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, Record<string, boolean>>>({})
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<{ name: string; content: string } | null>(null)
@@ -156,6 +159,8 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted }: Mess
   const [fileHistory, setFileHistory] = useState<Record<string, Array<{ code: string; version: number }>>>({})
   const [fullMessageModal, setFullMessageModal] = useState<Message | null>(null)
   const [modalExpandedSections, setModalExpandedSections] = useState<Record<string, boolean>>({})
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editContent, setEditContent] = useState<string>('')
 
   const toggleSection = (messageId: string, section: string) => {
     setExpandedSections((prev) => ({
@@ -188,6 +193,15 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted }: Mess
       [section]: !prev[section],
     }))
   }, [])
+
+  const handleCopy = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      onCopy?.(text)
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+    }
+  }, [onCopy])
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -240,6 +254,7 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted }: Mess
     <div className="space-y-6" role="log" aria-live="polite">
       {messages.map((message, index) => {
         const isStreaming = message.id.startsWith("temp-") && index === messages.length - 1
+        const isEditing = editingId === message.id
 
         return (
           <div
@@ -248,14 +263,14 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted }: Mess
           >
             <div
               className={cn(
-                "max-w-[100%] rounded-lg px-4 py-3",
+                "relative max-w-[100%] rounded-lg px-4 py-3",
                 message.role === "user" ? "bg-[#e4e4e4] text-[15px] text-black/75" : "text-[15px] text-black",
               )}
               role={message.role === "user" ? "user-message" : "assistant-message"}
               aria-label={`${message.role} message`}
             >
               {message.role === "user" ? (
-                <div className="space-y-3">
+                <div className="space-y-3 w-full">
                   {/* User's uploaded images (existing) */}
                   {message.imageData?.map((img, idx) => (
                     <button
@@ -285,32 +300,87 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted }: Mess
                     </button>
                   ))}
                   
-                  {/* User message with Markdown support for organization/highlighting */}
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-bold text-black">{children}</strong>,
-                      em: ({ children }: { children?: React.ReactNode }) => <em className="italic text-black/80">{children}</em>,
-                      p: ({ children }: { children?: React.ReactNode }) => <p className="text-sm whitespace-pre-wrap leading-relaxed mb-2">{children}</p>,
-                      ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 space-y-1">{children}</ul>,
-                      ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-5 space-y-1">{children}</ol>,
-                      li: ({ children }: { children?: React.ReactNode }) => <li className="text-sm leading-relaxed">{children}</li>,
-                    }}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
+                  {/* User message content */}
+                  {isEditing ? (
+                    <textarea
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          onEdit?.(message.id, editContent)
+                          setEditingId(null)
+                        } else if (e.key === 'Escape') {
+                          setEditingId(null)
+                        }
+                      }}
+                      className="w-full p-2 border rounded resize-none text-sm bg-white text-black/75"
+                      placeholder="Edit your message..."
+                      autoFocus
+                      rows={3}
+                    />
+                  ) : (
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-bold text-black">{children}</strong>,
+                        em: ({ children }: { children?: React.ReactNode }) => <em className="italic text-black/80">{children}</em>,
+                        p: ({ children }: { children?: React.ReactNode }) => <p className="text-sm whitespace-pre-wrap leading-relaxed mb-2">{children}</p>,
+                        ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 space-y-1">{children}</ul>,
+                        ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-5 space-y-1">{children}</ol>,
+                        li: ({ children }: { children?: React.ReactNode }) => <li className="text-sm leading-relaxed">{children}</li>,
+                      }}
+                    >
+                      {message.content}
+                    </ReactMarkdown>
+                  )}
                 </div>
               ) : (
-                <AIMessageContent
-                  message={message}
-                  isStreaming={isStreaming}
-                  expandedSections={expandedSections[message.id] || {}}
-                  onToggleSection={(section) => toggleSection(message.id, section)}
-                  onArtifactClick={onArtifactClick}
-                  onCodeSelect={handleCodeSelect}
-                  onOpenFullModal={() => openFullMessageModal(message)}
-                />
+                <div className="w-full">
+                  <AIMessageContent
+                    message={message}
+                    isStreaming={isStreaming}
+                    expandedSections={expandedSections[message.id] || {}}
+                    onToggleSection={(section) => toggleSection(message.id, section)}
+                    onArtifactClick={onArtifactClick}
+                    onCodeSelect={handleCodeSelect}
+                    onOpenFullModal={() => openFullMessageModal(message)}
+                  />
+                </div>
               )}
+
+              {/* Action buttons */}
+              <div className="absolute bottom-2 right-2 flex gap-1">
+                {message.role === "user" ? (
+                  <>
+                    {/* <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleCopy(message.content)}
+                      className="h-6 w-6 p-0 relative top-4 bg-white border"
+                      aria-label="Copy message"
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button> */}
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const sections = parseAIResponse(message.content)
+                        const textToCopy = sections.responseText || message.content
+                        handleCopy(textToCopy)
+                      }}
+                      className="h-6 w-6 p-0 hover:bg-[#e4e4e4]"
+                      aria-label="Copy response"
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         )

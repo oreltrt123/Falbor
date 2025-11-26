@@ -4,7 +4,7 @@ import { Save } from "lucide-react"
 import { Editor } from '@monaco-editor/react'
 
 interface EditorPaneProps {
-  selectedFile: { path: string; content: string; language: string } | null
+  selectedFile: { path: string; content: string } | null
   editedContent: string
   setEditedContent: (content: string) => void
   isEditorFocused: boolean
@@ -14,6 +14,31 @@ interface EditorPaneProps {
   scrollRef: React.RefObject<HTMLDivElement | null>
   monacoRef: React.RefObject<any>
   editorOptions: any
+}
+
+const getLanguage = (filePath: string): string => {
+  if (!filePath) return "plaintext"
+  const extension = filePath.split(".").pop()?.toLowerCase()
+  switch (extension) {
+    case "ts":
+    case "tsx":
+      return "typescript"
+    case "js":
+    case "jsx":
+      return "javascript"
+    case "py":
+      return "python"
+    case "html":
+      return "html"
+    case "css":
+      return "css"
+    case "json":
+      return "json"
+    case "md":
+      return "markdown"
+    default:
+      return "plaintext"
+  }
 }
 
 export function EditorPane({
@@ -57,7 +82,7 @@ export function EditorPane({
                 editor.onDidBlurEditorWidget(() => setIsEditorFocused(false))
               }}
               height="100%"
-              defaultLanguage={selectedFile.language}
+              defaultLanguage={getLanguage(selectedFile.path)}
               value={editedContent}
               onChange={(value) => setEditedContent(value || '')}
               theme="vs-light"

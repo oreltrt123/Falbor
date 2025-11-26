@@ -1,6 +1,6 @@
 "use client"
 
-import { Globe, Code2, Download, RefreshCw, Rocket, Settings } from "lucide-react"
+import { Globe, Code2, Download, RefreshCw, Rocket, Settings, Terminal} from "lucide-react"
 import { TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
@@ -12,13 +12,17 @@ interface MainHeaderProps {
   handleDownload: () => void
   refreshFilesAndPreview: () => void
   projectId: string
+  showTerminal: boolean
+  setShowTerminal: (open: boolean) => void
 }
 
 export function MainHeader({
   previewUrl,
   showDownloadMenu,
+  setShowTerminal,
   setShowDownloadMenu,
   handleDownload,
+  showTerminal,
   refreshFilesAndPreview,
   projectId,
 }: MainHeaderProps) {
@@ -115,7 +119,16 @@ export function MainHeader({
           <Rocket className="w-4 h-4" />
           {isDeploying ? "Deploying..." : "Deploy"}
         </button>
-
+        <button
+          onClick={() => setShowTerminal(!showTerminal)}
+          className={cn(
+            "flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors",
+            showTerminal ? "bg-[#cccccc] text-black" : "bg-[#e4e4e4] text-black hover:bg-[#e7e7e7]",
+          )}
+          title="Toggle terminal visibility"
+        >
+          <Terminal className="w-4 h-4" />
+        </button>
         {/* Download button */}
         <button
           id="download-button"
