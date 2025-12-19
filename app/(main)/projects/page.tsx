@@ -7,7 +7,6 @@ export async function page() {
   const { userId } = await auth()
   return (
     <div className="relative min-h-screen flex flex-col bg-[#161616] overflow-hidden">
-      <Navbar />
       <div className="p-40">
         {userId && (
           <div className="relative z-10 px-4 pb-8">

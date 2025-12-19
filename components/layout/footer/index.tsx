@@ -9,58 +9,40 @@ function Footer() {
         {/* Privacy Link (don't wrap a button in Link) */}
         <Link
           href="/legal/privacy"
-          className="ml-1 text-[14px] text-white/75 hover:text-white/95 transition-colors inline-flex items-center"
+          className="ml-1 text-[14px] text-black/75 hover:text-black/95 transition-colors inline-flex items-center"
         >
           Privacy
         </Link>
 
         {/* Divider Image (Centered Between Links) */}
-        <img
-          width={20}
-          height={20}
-          src="/icons/line.png"
-          alt="divider"
-          className="mx-1 pointer-events-none opacity-60"
-        />
+         <div className="h-5 w-px bg-gray-300 mx-2" />
 
         {/* Terms Link */}
         <Link
           href="/legal/terms"
-          className="ml-1 text-[14px] text-white/75 hover:text-white/95 transition-colors inline-flex items-center"
+          className="ml-1 text-[14px] text-black/75 hover:text-black/95 transition-colors inline-flex items-center"
         >
           Terms
         </Link>
         
         {/* Divider Image (Centered Between Links) */}
-        <img
-          width={20}
-          height={20}
-          src="/icons/line.png"
-          alt="divider"
-          className="mx-1 pointer-events-none opacity-60"
-        />
+         <div className="h-5 w-px bg-gray-300 mx-2" />
 
         {/* Terms Link */}
         <Link
           href="https://discord.gg/FmPzZQm6"
-          className="ml-1 text-[14px] text-white/75 hover:text-white/95 transition-colors inline-flex items-center"
+          className="ml-1 text-[14px] text-black/75 hover:text-black/95 transition-colors inline-flex items-center"
         >
           Discord
         </Link>
         
         {/* Divider Image (Centered Between Links) */}
-        <img
-          width={20}
-          height={20}
-          src="/icons/line.png"
-          alt="divider"
-          className="mx-1 pointer-events-none opacity-60"
-        />
+         <div className="h-5 w-px bg-gray-300 mx-2" />
 
         {/* Terms Link */}
         <Link
           href="https://www.reddit.com/r/Falbor/?feed=home"
-          className="ml-1 text-[14px] text-white/75 hover:text-white/95 transition-colors inline-flex items-center"
+          className="ml-1 text-[14px] text-black/75 hover:text-black/95 transition-colors inline-flex items-center"
         >
           Reddit
         </Link>

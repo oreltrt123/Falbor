@@ -1,47 +1,41 @@
+// File: components/MainHeader.tsx
+// Changes: Replaced the custom /api/auth/token fetch with useAuth().getToken() for consistency with other components.
+// This should resolve the "Unauthorized" error by ensuring a valid Clerk JWT is sent in the Authorization header.
 "use client"
 
-import { Globe, Code2, Download, RefreshCw, Rocket, Settings, Terminal} from "lucide-react"
+import { Globe, Code2, Download, RefreshCw, Rocket, Settings, Terminal, Database } from "lucide-react"
 import { TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
+import { useAuth } from "@clerk/nextjs"
 
 interface MainHeaderProps {
-  previewUrl: string | null
   showDownloadMenu: boolean
   setShowDownloadMenu: (open: boolean) => void
   handleDownload: () => void
   refreshFilesAndPreview: () => void
   projectId: string
-  showTerminal: boolean
-  setShowTerminal: (open: boolean) => void
 }
 
 export function MainHeader({
-  previewUrl,
-  showDownloadMenu,
-  setShowTerminal,
-  setShowDownloadMenu,
   handleDownload,
-  showTerminal,
   refreshFilesAndPreview,
   projectId,
 }: MainHeaderProps) {
   const [isDeploying, setIsDeploying] = useState(false)
-  const [deployedUrl, setDeployedUrl] = useState<string | null>(null)
+  const [, setDeployedUrl] = useState<string | null>(null)
+  const { getToken } = useAuth()
 
   const handleDeploy = async () => {
     setIsDeploying(true)
     try {
-      const token = await fetch("/api/auth/token")
-        .then((r) => r.json())
-        .then((d) => d.token)
-        .catch(() => null)
+      const token = await getToken()
 
       const response = await fetch(`/api/projects/${projectId}/deploy`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token && { Authorization: `Bearer ${token}` }),
+          Authorization: `Bearer ${token}`,
         },
       })
 
@@ -76,33 +70,10 @@ export function MainHeader({
           <TabsTrigger value="settings" className="gap-2">
             <Settings className="w-4 h-4 text-black" />
           </TabsTrigger>
+          <TabsTrigger value="database" className="gap-2">
+            <Database className="w-4 h-4 text-black" />
+          </TabsTrigger>
         </TabsList>
-      </div>
-
-      {/* Center - Preview URL Display */}
-      <div className="flex-1 flex justify-center">
-        {previewUrl && (
-          <div className="flex items-center gap-1 bg-[#e4e4e4b4] px-2 py-1 rounded-sm text-black/80 text-[13px] max-w-[60%] truncate">
-            <span className="truncate">{previewUrl}</span>
-
-            <button
-              onClick={refreshFilesAndPreview}
-              className="ml-1 p-1 hover:bg-black/10 rounded transition"
-              title="Refresh files & preview"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-
-            {/* Open preview in new tab */}
-            <button
-              onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}
-              className="ml-1 p-1 hover:bg-black/10 rounded transition"
-              title="Open in new tab"
-            >
-              <img width={13} height={13} src="/icons/new-tab.png" alt="Open in new tab" />
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Right side - Deploy and Download buttons */}
@@ -118,16 +89,6 @@ export function MainHeader({
         >
           <Rocket className="w-4 h-4" />
           {isDeploying ? "Deploying..." : "Deploy"}
-        </button>
-        <button
-          onClick={() => setShowTerminal(!showTerminal)}
-          className={cn(
-            "flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors",
-            showTerminal ? "bg-[#cccccc] text-black" : "bg-[#e4e4e4] text-black hover:bg-[#e7e7e7]",
-          )}
-          title="Toggle terminal visibility"
-        >
-          <Terminal className="w-4 h-4" />
         </button>
         {/* Download button */}
         <button

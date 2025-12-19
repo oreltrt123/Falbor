@@ -1,8 +1,9 @@
-import type React from "react"
 import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
-import { ClerkProvider } from "@clerk/nextjs"
 import "./globals.css"
+import Providers from "./providers"
+import ClientDockWrapper from "@/components/layout/Button/ClientDockWrapper"
+import DefaultDemo from "@/components/layout/Button/Navbar"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,19 +18,22 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Falbor",
   description: "Build websites with AI",
-    generator: 'v0.app'
+  generator: "v0.app",
 }
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
-    <ClerkProvider>
-      <html lang="en">
-        <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>{children}</body>
-      </html>
-    </ClerkProvider>
+    <html lang="en">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <Providers>
+          <ClientDockWrapper />
+          {children}
+        </Providers>
+      </body>
+    </html>
   )
 }

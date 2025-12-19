@@ -24,6 +24,13 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
   const [windowWidth, setWindowWidth] = useState(0)
   const [isResizingState, setIsResizingState] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isCodeGenerating, setIsCodeGenerating] = useState(false)
+  const [previewError, setPreviewError] = useState<{
+    message: string
+    file?: string
+    line?: string
+  } | null>(null)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(true)
   const hasAutoTriggered = useRef(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -34,7 +41,7 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
   const startX = useRef(0)
   const startWidth = useRef(0)
 
-  const isNarrow = leftWidth < windowWidth * 0.4
+  const isNarrow = isPreviewOpen && leftWidth < windowWidth * 0.4
 
   useEffect(() => {
     const handleResize = () => {
@@ -87,6 +94,29 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
       }
     }
   }, [messages])
+
+  useEffect(() => {
+    if (project.id) {
+      const savedError = localStorage.getItem(`preview-error-${project.id}`)
+      if (savedError) {
+        try {
+          setPreviewError(JSON.parse(savedError))
+        } catch (e) {
+          console.error("[v0] Failed to parse saved error:", e)
+        }
+      }
+    }
+  }, [project.id])
+
+  useEffect(() => {
+    if (project.id) {
+      if (previewError) {
+        localStorage.setItem(`preview-error-${project.id}`, JSON.stringify(previewError))
+      } else {
+        localStorage.removeItem(`preview-error-${project.id}`)
+      }
+    }
+  }, [previewError, project.id])
 
   const handleAutoGenerate = async (userContent: string) => {
     setIsStreaming(true)
@@ -188,7 +218,7 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
 
       if (safeMessage.id.startsWith("temp-")) {
         const existingIndex = validPrev.findIndex((m) => m.id === safeMessage.id)
-        if (existingIndex !== - 1) {
+        if (existingIndex !== -1) {
           // Update existing temp message with new content
           const newMessages = [...validPrev]
           newMessages[existingIndex] = safeMessage
@@ -212,6 +242,18 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  const handleCodeGenerating = (generating: boolean) => {
+    setIsCodeGenerating(generating)
+  }
+
+  const handleDismissError = () => {
+    setPreviewError(null)
+  }
+
+  const handlePreviewError = (error: { message: string; file?: string; line?: string }) => {
+    setPreviewError(error)
+  }
 
   // Resizing handlers
   const handleMouseMove = (e: MouseEvent) => {
@@ -240,19 +282,18 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
-      <Navbar />
       <div className="flex-1 flex overflow-hidden">
         {/* Left Chat Panel */}
         <div
-          className={`flex flex-col overflow-hidden ${isResizingState ? "transition-none" : "transition-all duration-200"}`}
-          style={{ width: leftWidth }}
+          className={`flex flex-col overflow-hidden ${isResizingState ? "transition-none" : "transition-all duration-200"} ${isPreviewOpen ? "" : "flex-1"}`}
+          style={{ width: isPreviewOpen ? leftWidth : "100%" }}
         >
           <div
             ref={messagesContainerRef}
-            className={`flex-1 overflow-y-auto overflow-x-hidden chat-messages-scroll py-4 mt-14 ${isNarrow ? "px-4" : "px-0"} ${isResizingState ? "transition-none" : "transition-all duration-300 ease-in-out"}`}
+            className={`flex-1 overflow-y-auto overflow-x-hidden chat-messages-scroll py-4 mt-14 ${isResizingState ? "transition-none" : "transition-all duration-300 ease-in-out"}`}
           >
             <div
-              className={`${isNarrow ? "" : "max-w-2xl mx-auto px-4"} ${isResizingState ? "transition-none" : "transition-all duration-300 ease-in-out"}`}
+              className={`${isPreviewOpen ? (isNarrow ? "px-4" : "max-w-2xl mx-auto px-4") : "max-w-2xl mx-auto px-4"} ${isResizingState ? "transition-none" : "transition-all duration-300 ease-in-out"}`}
             >
               <MessageList
                 messages={messages.map((msg) => ({
@@ -265,28 +306,40 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
           </div>
 
           <div
-            className={`flex-none pb-4 ${isNarrow ? "px-4" : "px-0"} ${isResizingState ? "transition-none" : "transition-all duration-300 ease-in-out"}`}
+            className={`flex-none pb-4 ${isResizingState ? "transition-none" : "transition-all duration-300 ease-in-out"}`}
           >
             <div
-              className={`${isNarrow ? "" : "max-w-2xl mx-auto px-4"} ${isResizingState ? "transition-none" : "transition-all duration-300 ease-in-out"}`}
+              className={`${isPreviewOpen ? (isNarrow ? "px-4" : "max-w-2xl mx-auto px-4") : "max-w-2xl mx-auto px-4"} ${isResizingState ? "transition-none" : "transition-all duration-300 ease-in-out"}`}
             >
               <ChatInput
                 isAuthenticated={true}
                 projectId={project.id}
                 initialModel={project.selectedModel || "gemini"}
                 onNewMessage={handleNewMessage}
+                previewError={previewError}
+                onDismissError={handleDismissError}
               />
             </div>
           </div>
         </div>
 
-        {/* Vertical Resizable Divider */}
-        <div onMouseDown={handleMouseDown} className="w-1 cursor-col-resize hover:bg-[#e7e7e7] py-4 mt-14" />
+        {/* Vertical Resizable Divider - only if preview open */}
+        {isPreviewOpen && (
+          <div onMouseDown={handleMouseDown} className="w-1 cursor-col-resize hover:bg-[#e7e7e7] py-4 mt-14" />
+        )}
 
-        {/* Right Code Panel */}
-        <div className="flex-1 px-2  py-4 mt-10 overflow-hidden">
-          <CodePreview projectId={project.id} />
-        </div>
+        {/* Right Code Panel - only if open */}
+        {isPreviewOpen && (
+          <div className="flex-1 px-2 py-4 mt-10 overflow-hidden">
+            <CodePreview 
+              projectId={project.id} 
+              isCodeGenerating={isCodeGenerating} 
+              onError={handlePreviewError}
+              isOpen={isPreviewOpen}
+              onClose={() => setIsPreviewOpen(false)}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

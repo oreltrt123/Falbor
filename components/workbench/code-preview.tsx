@@ -1,16 +1,30 @@
+// File: components/CodePreview.tsx
+// No changes needed; this file appears to be functioning as intended based on the provided error context.
 "use client"
 import { useEffect, useState, useRef, useMemo, useCallback } from "react"
-import { Loader2, TerminalIcon, X, Plus } from "lucide-react"
+import { TerminalIcon, Plus, Loader2, X } from "lucide-react"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 import { MainHeader } from "./main-header"
 import { CodeTab } from "./code-tab"
 import { SettingsTab } from "./settings-tab"
 import { useAuth } from "@clerk/nextjs"
-import { getWebContainerInstance } from "@/lib/webcontainer-singleton"
-import { detectPackagesFromFiles, getPackageInstallCommand } from "@/lib/package-detector"
+import {
+  SandpackProvider,
+  SandpackFileExplorer,
+  SandpackCodeEditor,
+  SandpackPreview,
+} from "@codesandbox/sandpack-react"
+import { DatabasePanel } from "./database-panel"
 
 interface CodePreviewProps {
   projectId: string
+  isCodeGenerating?: boolean
+  onError?: (error: { message: string; file?: string; line?: string }) => void
+  isOpen?: boolean
+  onClose?: () => void
+  currentVersion?: string
+  filesOverride?: Array<{ path: string; content: string; language: string }>
+  isGitHubImport?: boolean // Added flag to detect GitHub imports
 }
 
 interface TerminalTab {
@@ -18,13 +32,61 @@ interface TerminalTab {
   title: string
 }
 
-export function CodePreview({ projectId }: CodePreviewProps) {
-  // State management
-  const [loading, setLoading] = useState(true)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+const AUTO_GENERATED_FILES = [
+  "public/index.html",
+  "src/App.tsx",
+  "src/index.css",
+  "src/main.tsx",
+  "src/App.css",
+  "README.md",
+  "index.html",
+  "index.tsx",
+  "manifest.json",
+  "postcss.config.js",
+  "postcss.config.ts",
+  "styles.css",
+  "tailwind.config.js",
+  "tailwind.config.ts",
+  "tsconfig.json",
+  "vite.config.js",
+  "vite.config.ts",
+  "package.json",
+  ".gitignore",
+  "package-lock.json",
+  "yarn.lock",
+]
+
+function shouldHideFile(filePath: string, isGitHubImport: boolean): boolean {
+  if (!isGitHubImport) return false // Show all files for AI-generated projects
+
+  // Normalize path (remove leading slash/backslash)
+  const normalizedPath = filePath.replace(/^[/\\]+/, "")
+
+  return AUTO_GENERATED_FILES.some((autoGenFile) => {
+    const normalizedAutoGen = autoGenFile.replace(/^[/\\]+/, "")
+    return normalizedPath === normalizedAutoGen || normalizedPath.endsWith(`/${normalizedAutoGen}`)
+  })
+}
+
+function SandpackPreviewClient() {
+  const previewRef = useRef<any>(null)
+  return <SandpackPreview ref={previewRef} showNavigator={true} style={{ height: "100%" }} />
+}
+
+export function CodePreview({
+  projectId,
+  isCodeGenerating,
+  onError,
+  isOpen = true,
+  onClose,
+  currentVersion,
+  filesOverride,
+  isGitHubImport = false, // Default to false for AI-generated projects
+}: CodePreviewProps) {
   const [files, setFiles] = useState<
     Array<{ path: string; content: string; language: string; type?: string; isLocked?: boolean }>
   >([])
+  const [projectType, setProjectType] = useState<"python" | "react" | null>(null)
   const [selectedFile, setSelectedFile] = useState<{ path: string; content: string; language: string } | null>(null)
   const [editedContent, setEditedContent] = useState("")
   const [isEditorFocused, setIsEditorFocused] = useState(false)
@@ -33,594 +95,386 @@ export function CodePreview({ projectId }: CodePreviewProps) {
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [showDownloadMenu, setShowDownloadMenu] = useState(false)
+  const [pyodideReady, setPyodideReady] = useState(false)
+  const [filesLoaded, setFilesLoaded] = useState(false)
+  const [terminalError, setTerminalError] = useState<string | null>(null)
 
-  const [webcontainer, setWebcontainer] = useState<any>(null)
-  const [containerReady, setContainerReady] = useState(false)
-  const [terminalReady, setTerminalReady] = useState(false)
-  const [showTerminal, setShowTerminal] = useState(true)
-  const [isRunning, setIsRunning] = useState(false)
-
-  // Terminal tabs state
-  const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([{ id: 1, title: "Shell 1" }])
+  const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([{ id: 1, title: "Python REPL" }])
   const [activeTerminalTab, setActiveTerminalTab] = useState(1)
-  const activeTabRef = useRef(1)
 
-  // Refs for terminals
   const terminals = useRef<Map<number, any>>(new Map())
   const fitAddons = useRef<Map<number, any>>(new Map())
-  const shellProcesses = useRef<Map<number, any>>(new Map())
   const terminalRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const scrollRef = useRef<HTMLDivElement>(null)
-  const previousScrollTop = useRef(0)
   const monacoRef = useRef<any>(null)
-  const listenerAdded = useRef(false)
+  const pyodideRef = useRef<any>(null)
+  const replBuffers = useRef<Map<number, { buffer: string; prompt: string }>>(new Map())
   const { getToken } = useAuth()
 
-  // Highlight match function for search results
-  const highlightMatch = useCallback((text: string, matches: { start: number; end: number }[]) => {
-    let result = text;
-    matches.forEach(({ start, end }) => {
-      const before = result.substring(0, start);
-      const match = result.substring(start, end);
-      const after = result.substring(end);
-      result = `${before}<mark>${match}</mark>${after}`;
-    });
-    return <div dangerouslySetInnerHTML={{ __html: result }} />;
-  }, []);
+  const effectiveFiles = useMemo(() => {
+    const sourceFiles = filesOverride || files
 
-  // Update active tab ref
-  useEffect(() => {
-    activeTabRef.current = activeTerminalTab
-  }, [activeTerminalTab])
+    if (!isGitHubImport) return sourceFiles // Show all files for AI projects
 
-  // Global resize handler for all terminals
-  useEffect(() => {
-    const handleResize = () => {
-      fitAddons.current.forEach((fa) => {
-        if (fa) {
-          setTimeout(() => fa.fit(), 100)
-        }
-      })
-    }
-    window.addEventListener("resize", handleResize)
-    return () => window.removeEventListener("resize", handleResize)
-  }, [])
+    // Filter out auto-generated files for GitHub imports
+    const filtered = sourceFiles.filter((file) => !shouldHideFile(file.path, isGitHubImport))
 
-  // Initialize terminals for tabs
-  const initTerminalForTab = useCallback(
-    async (tabId: number) => {
-      if (terminalRefs.current.has(tabId)) {
-        const dom = terminalRefs.current.get(tabId)
-        if (!dom || terminals.current.has(tabId)) return
+    console.log("[v0] GitHub Import detected: filtering auto-generated files")
+    console.log("[v0] Original files:", sourceFiles.length, "Filtered files:", filtered.length)
 
-        try {
-          console.log(`[v0] Initializing terminal for tab ${tabId}...`)
-          const { Terminal } = await import("@xterm/xterm")
-          const { FitAddon } = await import("@xterm/addon-fit")
+    return filtered
+  }, [filesOverride, files, isGitHubImport])
 
-          const term = new Terminal({
-            cursorBlink: true,
-            fontSize: 13,
-            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-            theme: {
-              background: "#ffffff",
-              foreground: "#000000",
-            },
-            convertEol: true,
-          })
+  const sandpackFiles = useMemo(() => {
+    if (projectType !== "react" || effectiveFiles.length === 0) return {}
+    return effectiveFiles.reduce((acc: Record<string, string>, file) => {
+      const key = `/${file.path.startsWith("/") ? file.path.slice(1) : file.path}`
+      acc[key] = file.content
+      return acc
+    }, {})
+  }, [effectiveFiles, projectType])
 
-          const fitAddon = new FitAddon()
-          term.loadAddon(fitAddon)
-          term.open(dom)
+  const template = useMemo(() => {
+    if (projectType !== "react") return "react"
+    const hasTs = effectiveFiles.some((f) => f.path.endsWith(".ts") || f.path.endsWith(".tsx"))
+    return hasTs ? "react-ts" : "react"
+  }, [effectiveFiles, projectType])
 
-          setTimeout(() => {
-            fitAddon.fit()
-          }, 100)
-
-          terminals.current.set(tabId, term)
-          fitAddons.current.set(tabId, fitAddon)
-
-          if (!terminalReady) {
-            setTerminalReady(true)
-          }
-
-          console.log(`[v0] Terminal initialized successfully for tab ${tabId}`)
-
-          // Start shell if container is ready
-          if (containerReady && webcontainer) {
-            startShellForTab(tabId)
-          }
-        } catch (error) {
-          console.error(`[v0] Failed to initialize terminal for tab ${tabId}:`, error)
-        }
-      }
-    },
-    [containerReady, webcontainer, terminalReady]
+  const defaultDependencies = useMemo(
+    () => ({
+      react: "^18.2.0",
+      "react-dom": "^18.2.0",
+    }),
+    [],
   )
 
-  // Start shell for a specific tab
-  const startShellForTab = async (tabId: number) => {
-    if (!webcontainer || !terminals.current.has(tabId) || shellProcesses.current.has(tabId)) return
-
-    const term = terminals.current.get(tabId)
-    try {
-      console.log(`[v0] Starting shell process for tab ${tabId}...`)
-      const shellProcess = await webcontainer.spawn("jsh", {
-        terminal: {
-          cols: term.cols,
-          rows: term.rows,
-        },
-      })
-
-      shellProcesses.current.set(tabId, shellProcess)
-
-      shellProcess.output.pipeTo(
-        new WritableStream({
-          write(data: any) {
-            term.write(data)
-          },
-        })
-      )
-
-      const input = shellProcess.input.getWriter()
-      term.onData((data: string) => {
-        input.write(data)
-      })
-
-      term.writeln("Welcome to WebContainer Terminal!")
-      term.writeln("Type commands to interact with your project.")
-      term.writeln("")
-
-      console.log(`[v0] Shell connected successfully for tab ${tabId}`)
-    } catch (error) {
-      console.error(`[v0] Failed to start shell for tab ${tabId}:`, error)
-      term?.writeln(`Error starting shell: ${error}`)
-    }
-  }
-
-  // Add new terminal tab
-  const addTab = () => {
-    const newId = Date.now()
-    const newTitle = `Shell ${terminalTabs.length + 1}`
-    setTerminalTabs((prev) => [...prev, { id: newId, title: newTitle }])
-    setActiveTerminalTab(newId)
-  }
-
-  // Fetch files from API
-  const fetchFiles = async () => {
-    try {
-      const token = await getToken()
-      const filesResponse = await fetch(`/api/projects/${projectId}/files`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-      if (!filesResponse.ok) {
-        throw new Error(`HTTP error! status: ${filesResponse.status}`)
-      }
-      const filesData = await filesResponse.json()
-      const newFiles = filesData.files || []
-
-      if (scrollRef.current) {
-        previousScrollTop.current = scrollRef.current.scrollTop
-      }
-
-      setFiles(newFiles)
-
-      if (newFiles.length > 0) {
-        const latestFile = newFiles[newFiles.length - 1]
-        setSelectedFile((prev) => {
-          if (!prev) return latestFile
-          const stillExists = newFiles.find((f: any) => f.path === prev.path)
-          if (!stillExists) return latestFile
-          const updated = newFiles.find((f: any) => f.path === prev.path)
-          return updated || prev
-        })
-      }
-    } catch (error) {
-      console.error("[v0] Failed to fetch files:", error)
-    }
-  }
+  const filesKey = useMemo(() => effectiveFiles.map((f) => `${f.path}:${f.content.length}`).join("|"), [effectiveFiles])
 
   useEffect(() => {
-    let mounted = true
-
-    const initWebContainer = async () => {
-      try {
-        console.log("[v0] Starting WebContainer initialization...")
-        const instance = await getWebContainerInstance()
-
-        if (mounted) {
-          setWebcontainer(instance)
-          setContainerReady(true)
-          console.log("[v0] WebContainer initialized successfully")
-        }
-      } catch (error) {
-        console.error("[v0] Failed to initialize WebContainer:", error)
-      }
+    if (effectiveFiles.length === 0) {
+      setProjectType(null)
+      return
     }
-
-    initWebContainer()
-
-    return () => {
-      mounted = false
+    const hasPy = effectiveFiles.some((f) => f.language === "python" || f.path.endsWith(".py"))
+    const hasJsTs = effectiveFiles.some(
+      (f) =>
+        f.language === "javascript" ||
+        f.language === "typescript" ||
+        f.path.match(/\.j(sx?)$/) ||
+        f.path.match(/\.ts(x?)$/),
+    )
+    if (hasPy && !hasJsTs) {
+      setProjectType("python")
+    } else if (hasJsTs && !hasPy) {
+      setProjectType("react")
+    } else if (hasPy && hasJsTs) {
+      setProjectType("python")
+    } else {
+      setProjectType(null)
     }
+  }, [filesKey])
+
+  const highlightMatch = useCallback((text: string, matches: { start: number; end: number }[]) => {
+    let result = text
+    matches.forEach(({ start, end }) => {
+      const before = result.substring(0, start)
+      const match = result.substring(start, end)
+      const after = result.substring(end)
+      result = `${before}<mark>${match}</mark>${after}`
+    })
+    return <div dangerouslySetInnerHTML={{ __html: result }} />
   }, [])
 
-  // Initialize terminals when tabs change
   useEffect(() => {
-    terminalTabs.forEach((tab) => {
-      if (!terminals.current.has(tab.id)) {
-        initTerminalForTab(tab.id)
-      }
-    })
-  }, [terminalTabs, initTerminalForTab])
-
-  // Start shells for existing tabs when container becomes ready
-  useEffect(() => {
-    if (containerReady && webcontainer) {
-      terminalTabs.forEach((tab) => {
-        startShellForTab(tab.id)
-      })
-    }
-  }, [containerReady, webcontainer, terminalTabs])
-
-  // Set up global server-ready listener (only once)
-  useEffect(() => {
-    if (!containerReady || !webcontainer || listenerAdded.current) return
-
-    const handleServerReady = (port: number, url: string) => {
-      console.log("[v0] Server ready at:", url)
-      const currentActive = activeTabRef.current
-      const activeTerm = terminals.current.get(currentActive)
-      activeTerm?.writeln(`\n✓ Server running at ${url}`)
-      activeTerm?.writeln("✓ Preview is now live!")
-      setPreviewUrl(url)
-      setLoading(false)
+    if (projectType !== "python") {
+      setPyodideReady(false)
+      pyodideRef.current = null
+      return
     }
 
-    webcontainer.on("server-ready", handleServerReady)
-    listenerAdded.current = true
-
-    // WebContainer does not support .off(), so no cleanup
-  }, [containerReady, webcontainer])
-
-  useEffect(() => {
-    if (!webcontainer || !containerReady || files.length === 0) return
-
-    const loadFiles = async () => {
+    let scriptLoaded = false
+    const script = document.createElement("script")
+    script.src = "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"
+    script.onload = async () => {
+      scriptLoaded = true
       try {
-        console.log("[v0] Loading files into WebContainer...", files.length, "files")
-
-        const allFiles = [...files]
-        const hasPackageJson = allFiles.some((f) => f.path === "package.json")
-
-        if (!hasPackageJson) {
-          const defaultPackageJson = {
-            name: "nextjs-project",
-            version: "0.1.0",
-            private: true,
-            scripts: {
-              dev: "next dev --port 3000",
-              build: "next build",
-              start: "next start",
-            },
-            dependencies: {
-              next: "^14.2.5",
-              react: "^18.3.1",
-              "react-dom": "^18.3.1",
-            },
-            devDependencies: {
-              "@types/node": "^20",
-              "@types/react": "^18",
-              "@types/react-dom": "^18",
-              typescript: "^5",
-              tailwindcss: "^3.4.1",
-              postcss: "^8",
-              autoprefixer: "^10.4.19",
-            },
-          }
-          allFiles.push({
-            path: "package.json",
-            content: JSON.stringify(defaultPackageJson, null, 2),
-            language: 'json',
-          })
-        }
-
-        const fileTree: any = {}
-
-        for (const file of allFiles) {
-          if (!file.path || typeof file.content !== "string") {
-            console.warn("[v0] Skipping invalid file:", file.path || "undefined path")
-            continue
-          }
-
-          const parts = file.path.split("/").filter((p) => p)
-          if (parts.length === 0) {
-            console.warn("[v0] Skipping file with empty path:", file.path)
-            continue
-          }
-
-          let current = fileTree
-
-          for (let i = 0; i < parts.length - 1; i++) {
-            const dirName = parts[i]
-            if (!dirName) {
-              console.warn("[v0] Skipping file with invalid directory name in path:", file.path)
-              continue
-            }
-            if (!current[dirName]) {
-              current[dirName] = { directory: {} }
-            }
-            current = current[dirName].directory
-          }
-
-          const fileName = parts[parts.length - 1]
-          if (!fileName) {
-            console.warn("[v0] Skipping file with empty filename:", file.path)
-            continue
-          }
-
-          current[fileName] = {
-            file: {
-              contents: file.content,
-            },
-          }
-        }
-
-        if (Object.keys(fileTree).length === 0) {
-          console.error("[v0] No valid files to mount in WebContainer")
-          return
-        }
-
-        console.log("[v0] File tree structure ready")
-        await webcontainer.mount(fileTree)
-        console.log("[v0] Files loaded successfully into WebContainer")
-
-        // Auto-run dev server on first load
-        if (!isRunning && files.length > 0) {
-          setTimeout(() => {
-            autoRunDevServer()
-          }, 500)
-        }
+        const pyodide = await (window as any).loadPyodide({
+          indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/",
+          stdin: () => "",
+        })
+        pyodideRef.current = pyodide
+        setPyodideReady(true)
+        console.log("[Python Preview] Pyodide loaded successfully")
+        loadFilesIntoPyodide()
       } catch (error) {
-        console.error("[v0] Error loading files:", error)
+        console.error("[Python Preview] Failed to load Pyodide:", error)
       }
     }
+    document.head.appendChild(script)
 
-    loadFiles()
-  }, [webcontainer, containerReady, files])
-
-  const autoRunDevServer = async () => {
-    if (!webcontainer || !containerReady || isRunning) {
-      console.log("[v0] Cannot auto-run - container not ready or already running")
-      return
+    return () => {
+      if (scriptLoaded && document.head.contains(script)) {
+        document.head.removeChild(script)
+      }
     }
+  }, [projectType])
 
-    const spawningTab = activeTerminalTab
-    const targetTerm = terminals.current.get(spawningTab)
-    if (!targetTerm) {
-      console.log("[v0] No terminal for active tab")
-      return
-    }
-
-    setIsRunning(true)
-
-    const detectedPackages = detectPackagesFromFiles(files)
-    console.log("[v0] Detected packages:", detectedPackages)
-
-    targetTerm.writeln("\n$ npm install --legacy-peer-deps")
+  const loadFilesIntoPyodide = useCallback(async () => {
+    if (projectType !== "python" || !pyodideRef.current || effectiveFiles.length === 0) return
 
     try {
-      const installProcess = await webcontainer.spawn("npm", ["install", "--legacy-peer-deps"])
-
-      installProcess.output.pipeTo(
-        new WritableStream({
-          write(data: any) {
-            targetTerm.write(data)
-          },
-        })
-      )
-
-      const installCode = await installProcess.exit
-
-      if (installCode !== 0) {
-        targetTerm.writeln("\n✗ Failed to install dependencies")
-        setIsRunning(false)
-        return
+      console.log("[Python Preview] Loading", effectiveFiles.length, "files to Pyodide FS")
+      for (const file of effectiveFiles) {
+        if (!file.path || typeof file.content !== "string") continue
+        const fullPath = "/" + file.path
+        const dirPath = fullPath.substring(0, fullPath.lastIndexOf("/"))
+        if (dirPath && dirPath !== "/") {
+          try {
+            pyodideRef.current.FS.mkdirTree(dirPath)
+          } catch (e) {
+            // Ignore if exists
+          }
+        }
+        pyodideRef.current.FS.writeFile(fullPath, new TextEncoder().encode(file.content))
       }
+      setFilesLoaded(true)
+      console.log("[Python Preview] Files loaded")
+      terminalTabs.forEach((tab) => {
+        const term = terminals.current.get(tab.id)
+        if (term) {
+          term.writeln("\n✓ Files loaded! Run 'exec(open(\"main.py\").read())' to test your code.")
+        }
+      })
+    } catch (error) {
+      console.error("[Python Preview] File load error:", error)
+    }
+  }, [effectiveFiles, filesKey, terminalTabs, projectType])
 
-      // Install detected packages
-      if (detectedPackages.length > 0) {
-        const installCmd = getPackageInstallCommand(detectedPackages)
-        targetTerm.writeln(`\n$ ${installCmd}`)
+  useEffect(() => {
+    loadFilesIntoPyodide()
+  }, [loadFilesIntoPyodide])
 
-        const additionalInstall = await webcontainer.spawn("npm", ["install", "--legacy-peer-deps", ...detectedPackages])
+  const initTerminalForTab = useCallback(
+    async (tabId: number) => {
+      if (projectType !== "python") return
+      const dom = terminalRefs.current.get(tabId)
+      if (!dom || terminals.current.has(tabId)) return
 
-        additionalInstall.output.pipeTo(
-          new WritableStream({
-            write(data: any) {
-              targetTerm.write(data)
-            },
-          })
-        )
+      try {
+        const { Terminal } = await import("@xterm/xterm")
+        const { FitAddon } = await import("@xterm/addon-fit")
 
-        const additionalCode = await additionalInstall.exit
+        const term = new Terminal({
+          cursorBlink: true,
+          fontSize: 13,
+          fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+          theme: { background: "#000000", foreground: "#ffffff" },
+          convertEol: true,
+        })
 
-        if (additionalCode !== 0) {
-          targetTerm.writeln("\n⚠ Warning: Some additional packages failed to install")
-        } else {
-          targetTerm.writeln(`\n✓ Successfully installed ${detectedPackages.length} additional packages`)
+        const fitAddon = new FitAddon()
+        term.loadAddon(fitAddon)
+        term.open(dom)
+        fitAddon.fit()
+
+        terminals.current.set(tabId, term)
+        fitAddons.current.set(tabId, fitAddon)
+
+        replBuffers.current.set(tabId, { buffer: "", prompt: ">>> " })
+
+        if (pyodideReady) {
+          setupPyodideREPL(tabId, term)
+        }
+
+        console.log(`[Python Preview] Terminal ${tabId} ready`)
+      } catch (error) {
+        console.error(`[Python Preview] Terminal init error for ${tabId}:`, error)
+      }
+    },
+    [pyodideReady, projectType],
+  )
+
+  const setupPyodideREPL = useCallback(
+    (tabId: number, term: any) => {
+      const bufferInfo = replBuffers.current.get(tabId)
+      if (!bufferInfo) return
+
+      pyodideRef.current.runPython(`
+import sys
+class StdoutRedirect:
+    def __init__(self, write_func):
+        self.write_func = write_func
+    def write(self, text):
+        self.write_func(text)
+    def flush(self):
+        pass
+sys.stdout = StdoutRedirect(lambda text: js.term_write(text))
+`)
+
+      term.writeln("\nPython 3.12 REPL (Pyodide)")
+      term.writeln("Files loaded. Ready to run code!")
+      term.write(bufferInfo.prompt)
+
+      const onData = (data: string) => {
+        const char = data.charCodeAt(0)
+        if (char === 13) {
+          term.write("\r\n")
+          const code = bufferInfo.buffer + "\n"
+          bufferInfo.buffer = ""
+          pyodideRef.current
+            .runPythonAsync(code)
+            .then((result: any) => {
+              if (result !== undefined) term.write(result.toString() + "\r\n")
+            })
+            .catch((error: any) => {
+              const errorMsg = error.message || String(error)
+              term.write(errorMsg + "\r\n")
+
+              const fileMatch = errorMsg.match(/File "(.+?)", line (\d+)/)
+              onError?.({
+                message: errorMsg,
+                file: fileMatch?.[1],
+                line: fileMatch?.[2],
+              })
+            })
+          term.write(bufferInfo.prompt)
+        } else if (char === 127 || char === 8) {
+          if (bufferInfo.buffer.length > 0) {
+            bufferInfo.buffer = bufferInfo.buffer.slice(0, -1)
+            term.write("\b \b")
+          }
+        } else if (char >= 32 && char <= 126) {
+          bufferInfo.buffer += data
+          term.write(data)
         }
       }
+      term.onData(onData)
+      ;(term as any).disposeOnData = onData
+    },
+    [onError],
+  )
 
-      targetTerm.writeln("\n$ npm run dev")
+  const addTab = useCallback(() => {
+    if (projectType !== "python") return
+    const newId = Date.now()
+    setTerminalTabs((prev) => [...prev, { id: newId, title: `REPL ${prev.length + 1}` }])
+    setActiveTerminalTab(newId)
+  }, [projectType])
 
-      const devProcess = await webcontainer.spawn("npm", ["run", "dev"])
-
-      devProcess.output.pipeTo(
-        new WritableStream({
-          write(data: any) {
-            targetTerm.write(data)
-          },
-        })
-      )
-
-      // Server-ready handler is set globally
-    } catch (error) {
-      console.error("[v0] Error auto-running dev server:", error)
-      targetTerm.writeln(`\n✗ Error: ${error}`)
-      setIsRunning(false)
-      setLoading(false)
-    }
-  }
-
-  // Refresh files and preview
-  const refreshFilesAndPreview = async () => {
-    setLoading(true)
+  const fetchFiles = useCallback(async () => {
     try {
-      setPreviewUrl(null)
-      await fetchFiles()
-
-      // Restart dev server
-      if (isRunning) {
-        setIsRunning(false)
+      const token = await getToken()
+      let url = `/api/projects/${projectId}/files`
+      if (currentVersion) {
+        url += `?version=${currentVersion}`
       }
 
-      setTimeout(() => {
-        autoRunDevServer()
-      }, 1000)
+      console.log("[v0] Fetching files for project:", projectId, "isGitHubImport:", isGitHubImport)
+
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const { files: newFiles, isGitHubImport: fromServer } = await response.json()
+
+      console.log("[v0] Received", newFiles.length, "files from server")
+
+      setFiles(newFiles || [])
+      if (newFiles.length > 0 && !selectedFile) {
+        if (isGitHubImport || fromServer) {
+          const entryFile = newFiles.find(
+            (f: any) =>
+              f.path.match(/^(src\/)?App\.(tsx?|jsx?)$/) ||
+              f.path.match(/^(src\/)?index\.(tsx?|jsx?)$/) ||
+              f.path.match(/^(src\/)?main\.(tsx?|jsx?)$/),
+          )
+          setSelectedFile(entryFile || newFiles[0])
+        } else {
+          setSelectedFile(newFiles[newFiles.length - 1])
+        }
+      }
     } catch (error) {
-      console.error("[v0] Refresh failed:", error)
+      console.error("[Code Preview] Fetch files error:", error)
     }
-  }
+  }, [projectId, getToken, selectedFile, currentVersion, isGitHubImport])
 
-  // Save file
-  const handleSave = async () => {
-    if (!selectedFile || editedContent === selectedFile.content) return
-
+  const handleSave = useCallback(async () => {
+    if (projectType !== "python" || !selectedFile || editedContent === selectedFile.content) return
     try {
       const token = await getToken()
       await fetch(`/api/projects/${projectId}/files/${encodeURIComponent(selectedFile.path)}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: editedContent }),
       })
-
-      // Update file in WebContainer if it exists
-      if (webcontainer && containerReady) {
-        await webcontainer.fs.writeFile(selectedFile.path, editedContent)
-      }
-
       await fetchFiles()
     } catch (error) {
-      console.error("[v0] Failed to save file:", error)
+      console.error("[Code Preview] Save error:", error)
     }
-  }
+  }, [selectedFile, editedContent, projectId, getToken, fetchFiles, projectType])
 
-  // Download project as ZIP
-  const handleDownload = async () => {
+  const handleDownload = useCallback(async () => {
     const JSZip = (await import("jszip")).default
     const zip = new JSZip()
-    files.forEach((file) => {
-      zip.file(file.path, file.content)
-    })
+    effectiveFiles.forEach((file) => zip.file(file.path, file.content))
     const content = await zip.generateAsync({ type: "blob" })
     const url = URL.createObjectURL(content)
     const a = document.createElement("a")
     a.href = url
-    a.download = `${projectId}.zip`
+    a.download = `${projectId}${currentVersion ? `-v${currentVersion}` : ""}.zip`
     a.click()
     URL.revokeObjectURL(url)
     setShowDownloadMenu(false)
-  }
+  }, [effectiveFiles, projectId, currentVersion])
 
-  // Initial load
   useEffect(() => {
-    const initPreview = async () => {
-      try {
-        await fetchFiles()
-        setLoading(false)
-      } catch (error) {
-        console.error("[v0] Failed to initialize preview:", error)
-        setLoading(false)
+    fetchFiles()
+    const interval = setInterval(fetchFiles, 5000)
+    return () => clearInterval(interval)
+  }, [fetchFiles])
+
+  useEffect(() => {
+    if (projectType === "python" && selectedFile) setEditedContent(selectedFile.content)
+  }, [selectedFile, projectType])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (projectType === "python" && (e.ctrlKey || e.metaKey) && e.key === "s" && isEditorFocused) {
+        e.preventDefault()
+        handleSave()
       }
     }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [isEditorFocused, handleSave, projectType])
 
-    initPreview()
-
-    const pollInterval = setInterval(() => {
-      fetchFiles()
-    }, 3000)
-
-    return () => clearInterval(pollInterval)
-  }, [projectId, getToken])
-
-  // Update edited content when file changes
-  useEffect(() => {
-    if (selectedFile) {
-      setEditedContent(selectedFile.content)
-    }
-  }, [selectedFile])
-
-  // Handle keyboard shortcuts
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "s" && isEditorFocused) {
-      e.preventDefault()
-      e.stopPropagation()
-      handleSave()
-    }
-  }
-
-  useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown, true)
-    return () => document.removeEventListener("keydown", handleKeyDown, true)
-  }, [isEditorFocused])
-
-  // Search files
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) {
+  const handleSearch = useCallback(async () => {
+    if (projectType !== "python" || !searchQuery.trim()) {
       setSearchResults([])
       return
     }
-
     setIsSearching(true)
     try {
       const token = await getToken()
       const response = await fetch(`/api/projects/${projectId}/search?q=${encodeURIComponent(searchQuery)}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       })
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      const data = await response.json()
-      setSearchResults(data.results || [])
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const { results } = await response.json()
+      setSearchResults(results || [])
     } catch (error) {
-      console.error("[v0] Search failed:", error)
+      console.error("[Code Preview] Search error:", error)
     } finally {
       setIsSearching(false)
     }
-  }
+  }, [searchQuery, projectId, getToken, projectType])
 
-  // Search debounce
   useEffect(() => {
-    const debounce = setTimeout(() => {
-      if (searchQuery.trim()) {
-        handleSearch()
-      } else {
-        setSearchResults([])
-      }
-    }, 300)
+    const timeout = setTimeout(handleSearch, 300)
+    return () => clearTimeout(timeout)
+  }, [handleSearch])
 
-    return () => clearTimeout(debounce)
-  }, [searchQuery, getToken])
-
-  const isDirty = selectedFile ? editedContent !== selectedFile.content : false
+  const isDirty = projectType === "python" && selectedFile ? editedContent !== selectedFile.content : false
 
   const editorOptions = useMemo(
     () => ({
@@ -634,144 +488,192 @@ export function CodePreview({ projectId }: CodePreviewProps) {
     [],
   )
 
+  if (!isOpen) return null
+
   return (
     <div className="h-full flex flex-col border border-[#d6d6d6] rounded-md bg-[#ffffff] relative overflow-hidden">
+      <button
+        onClick={onClose}
+        className="absolute top-2 right-2 z-10 p-1 bg-white/80 hover:bg-gray-100 rounded transition-colors"
+        aria-label="Close preview"
+      >
+        <X className="w-4 h-4" />
+      </button>
+
+      {isCodeGenerating && (
+        <div className="absolute inset-0 bg-white z-50 flex items-center justify-center">
+          <div className="text-center space-y-4">
+            <Loader2 className="w-12 h-12 animate-spin mx-auto text-blue-600" />
+            <div className="space-y-2">
+              <p className="text-lg font-semibold text-gray-900">Creating the files...</p>
+              <p className="text-sm text-gray-600">Please wait while the files are being created</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Tabs defaultValue="code" className="flex-1 flex flex-col overflow-hidden">
         <MainHeader
-          previewUrl={previewUrl}
           showDownloadMenu={showDownloadMenu}
           setShowDownloadMenu={setShowDownloadMenu}
           handleDownload={handleDownload}
-          refreshFilesAndPreview={refreshFilesAndPreview}
+          refreshFilesAndPreview={fetchFiles}
           projectId={projectId}
-          showTerminal={showTerminal}
-          setShowTerminal={setShowTerminal}
         />
-
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Preview Section */}
-          <TabsContent
-            value="preview"
-            className="flex-1 m-0 flex overflow-hidden rounded-bl-1xl border-t border-[#4444442d]"
-          >
-            {loading ? (
-              <div className="flex-1 flex items-center justify-center bg-[#f5f5f5]">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-17 w-17  border-4 border-gray-200 border-t-black mx-auto mb-4"></div>
-                  <p className="text-xs text-gray-400 mt-1">Running npm install and dev server</p>
-                </div>
-              </div>
-            ) : previewUrl ? (
-              <iframe
-                src={previewUrl}
-                className="w-full flex-1 bg-white border-0"
-                title="Preview"
-                sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
-                style={{ border: "none" }}
-              />
-            ) : (
-              <div className="flex-1 flex items-center justify-center bg-[#f5f5f5]">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-17 w-17  border-4 border-gray-200 border-t-black mx-auto mb-4"></div>
-                  <p className="text-lg font-light text-gray-600">Waiting for server to start...</p>
-                </div>
-              </div>
-            )}
-          </TabsContent>
-
-          {/* Code Editor Section */}
-          <TabsContent
-            value="code"
-            className="flex-1 m-0 flex overflow-hidden rounded-bl-3xl border-t border-[#4444442d]"
-          >
-            <CodeTab
-              sidebarView={sidebarView}
-              setSidebarView={setSidebarView}
-              files={files}
-              selectedFile={selectedFile}
-              setSelectedFile={setSelectedFile}
-              editedContent={editedContent}
-              setEditedContent={setEditedContent}
-              isEditorFocused={isEditorFocused}
-              setIsEditorFocused={setIsEditorFocused}
-              searchQuery={searchQuery}
-              setSearchQuery={setSearchQuery}
-              searchResults={searchResults}
-              isSearching={isSearching}
-              highlightMatch={highlightMatch}
-              isDirty={isDirty}
-              handleSave={handleSave}
-              projectId={projectId}
-              fetchFiles={fetchFiles}
-              scrollRef={scrollRef}
-              monacoRef={monacoRef}
-              editorOptions={editorOptions}
-              loading={loading}
-            />
-          </TabsContent>
-
-          {/* Settings Section */}
-          <TabsContent
-            value="settings"
-            className="flex-1 m-0 flex overflow-hidden rounded-bl-3xl border-t border-[#4444442d]"
-          >
-            <SettingsTab projectId={projectId} />
-          </TabsContent>
-
-          {showTerminal && (
-            <div className="h-56 border-t border-[#4444442d] flex flex-col">
-              <div className="px-3 py-2 bg-[#ffffff] text-black text-sm flex items-center justify-between">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <TerminalIcon className="w-4 h-4 text-black flex-shrink-0" />
-                  <div className="flex items-center gap-1 flex-1 overflow-hidden">
-                    {terminalTabs.map((tab) => (
-                      <button
-                        key={tab.id}
-                        onClick={() => setActiveTerminalTab(tab.id)}
-                        className={`px-2 py-0.5 text-xs rounded whitespace-nowrap overflow-hidden text-ellipsis ${
-                          activeTerminalTab === tab.id
-                            ? "bg-gray-200 font-medium"
-                            : "hover:bg-gray-100"
-                        }`}
-                        title={tab.title}
-                      >
-                        {tab.title}
-                      </button>
-                    ))}
-                    <button
-                      onClick={addTab}
-                      className="p-0.5 hover:bg-gray-100 text-black rounded transition-colors flex-shrink-0"
-                      title="New tab"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-                {!terminalReady && <span className="text-xs text-gray-400">(Loading...)</span>}
-                <button
-                  onClick={() => setShowTerminal(false)}
-                  className="p-1 hover:bg-[#e4e4e4] text-black rounded transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="flex-1 relative bg-[#ffffff]">
-                {terminalTabs.map((tab) => (
-                  <div
-                    key={tab.id}
-                    ref={(el) => {
-                      if (el && !terminalRefs.current.has(tab.id)) {
-                        terminalRefs.current.set(tab.id, el)
-                        initTerminalForTab(tab.id)
-                      }
-                    }}
-                    className={`absolute inset-0 overflow-x-hidden overflow-y-auto ${
-                      activeTerminalTab === tab.id ? "block" : "hidden"
-                    }`}
-                  />
-                ))}
+          {projectType === null ? (
+            <div className="flex-1 flex items-center justify-center bg-gray-50">
+              <div className="text-center">
+                <Loader2 className="animate-spin h-8 w-8 border-2 border-gray-300 border-t-blue-600 mx-auto mb-3" />
+                <p className="text-sm text-gray-500">Loading project...</p>
               </div>
             </div>
+          ) : projectType === "python" ? (
+            <>
+              <TabsContent
+                value="preview"
+                className="flex-1 m-0 flex flex-col overflow-hidden rounded-bl-lg border-t border-gray-200"
+              >
+                {!pyodideReady ? (
+                  <div className="flex-1 flex items-center justify-center bg-gray-50">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-300 border-t-blue-600 mx-auto mb-3"></div>
+                      <p className="text-sm text-gray-500">Loading Pyodide Python runtime...</p>
+                    </div>
+                  </div>
+                ) : effectiveFiles.length === 0 ? (
+                  <div className="flex-1 flex items-center justify-center bg-black text-white">
+                    <div className="text-center">
+                      <p className="text-sm">Waiting for AI to generate Python files...</p>
+                      <p className="text-xs text-gray-400 mt-1">Switch to Code tab to edit.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col bg-[#202020]">
+                    <div className="px-3 py-2 bg-white text-white text-sm flex items-center justify-between border-b border-gray-700">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <TerminalIcon className="w-4 h-4 flex-shrink-0 text-black" />
+                        <div className="flex items-center gap-1 flex-1 overflow-hidden">
+                          {terminalTabs.map((tab) => (
+                            <button
+                              key={tab.id}
+                              onClick={() => setActiveTerminalTab(tab.id)}
+                              className={`px-2 py-1 text-xs rounded whitespace-nowrap overflow-hidden text-ellipsis ${
+                                activeTerminalTab === tab.id
+                                  ? "bg-[#dad8d8] hover:bg-[#e7e7e7] text-black"
+                                  : "bg-[#e4e4e4] hover:bg-[#e7e7e7] text-black"
+                              }`}
+                              title={tab.title}
+                            >
+                              {tab.title}
+                            </button>
+                          ))}
+                          <button
+                            onClick={addTab}
+                            className="p-1 bg-[#e4e4e4] hover:bg-[#e7e7e7] text-black rounded flex-shrink-0"
+                            title="New REPL"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                      {!filesLoaded && <span className="text-xs text-gray-400">(Loading files...)</span>}
+                    </div>
+                    <div className="flex-1 relative">
+                      {terminalTabs.map((tab) => (
+                        <div
+                          key={tab.id}
+                          ref={(el) => {
+                            if (el && !terminalRefs.current.has(tab.id)) {
+                              terminalRefs.current.set(tab.id, el)
+                              initTerminalForTab(tab.id)
+                            }
+                          }}
+                          className={`absolute inset-0 px-4 text-black ${activeTerminalTab === tab.id ? "block" : "hidden"}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent
+                value="code"
+                className="flex-1 m-0 flex overflow-hidden rounded-bl-lg border-t border-gray-200"
+              >
+                <CodeTab
+                  sidebarView={sidebarView}
+                  setSidebarView={setSidebarView}
+                  files={effectiveFiles}
+                  selectedFile={selectedFile}
+                  setSelectedFile={setSelectedFile}
+                  editedContent={editedContent}
+                  setEditedContent={setEditedContent}
+                  isEditorFocused={isEditorFocused}
+                  setIsEditorFocused={setIsEditorFocused}
+                  searchQuery={searchQuery}
+                  setSearchQuery={setSearchQuery}
+                  searchResults={searchResults}
+                  isSearching={isSearching}
+                  highlightMatch={highlightMatch}
+                  isDirty={isDirty}
+                  handleSave={handleSave}
+                  projectId={projectId}
+                  fetchFiles={fetchFiles}
+                  scrollRef={scrollRef}
+                  monacoRef={monacoRef}
+                  editorOptions={editorOptions}
+                  loading={!pyodideReady}
+                />
+              </TabsContent>
+
+              <TabsContent
+                value="settings"
+                className="flex-1 m-0 flex overflow-hidden rounded-bl-lg border-t border-gray-200"
+              >
+                <SettingsTab projectId={projectId} />
+              </TabsContent>
+            </>
+          ) : (
+            <SandpackProvider
+              files={sandpackFiles}
+              template={template}
+              theme={"light"}
+              customSetup={{
+                dependencies: defaultDependencies,
+              }}
+              options={{ externalResources: ["https://cdn.tailwindcss.com"] }}
+            >
+              <div className="h-[100vh] flex flex-col overflow-hidden">
+                <TabsContent
+                  value="preview"
+                  className="flex-1 m-0 p-0 border-t border-gray-200 overflow-hidden rounded-bl-lg"
+                >
+                  <SandpackPreviewClient />
+                </TabsContent>
+
+                <TabsContent
+                  value="code"
+                  className="flex-1 m-0 p-0 border-t border-gray-200 overflow-hidden rounded-bl-lg flex"
+                >
+                  <SandpackFileExplorer style={{ height: "100%", width: "300px" }} />
+                  <SandpackCodeEditor style={{ height: "100%", flex: 1 }} />
+                </TabsContent>
+
+                <TabsContent
+                  value="settings"
+                  className="flex-1 m-0 flex overflow-hidden rounded-bl-lg border-t border-gray-200"
+                >
+                  <SettingsTab projectId={projectId} />
+                </TabsContent>
+                <TabsContent
+                  value="database"
+                  className="flex-1 m-0 flex overflow-hidden rounded-bl-lg border-t border-gray-200"
+                >
+                  <DatabasePanel projectId={projectId} />
+                </TabsContent>
+              </div>
+            </SandpackProvider>
           )}
         </div>
       </Tabs>

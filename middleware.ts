@@ -4,17 +4,17 @@ import type { NextRequest } from "next/server"
 
 const isProtectedRoute = createRouteMatcher(["/chat(.*)"])
 
-export default clerkMiddleware(async (auth, req) => {
+export default clerkMiddleware((auth, req: NextRequest) => {
   // Skip auth for webhook routes
   if (req.nextUrl.pathname.startsWith('/api/webhooks') || req.nextUrl.pathname.startsWith('/api/stripe/webhook')) {
     console.log('Middleware: Skipping auth for webhook:', req.nextUrl.pathname)
-    return
+    return NextResponse.next()
   }
 
   const hostname = req.headers.get('host') || ''
   const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || 'falbor.xyz'
   
-  // Check if this is a subdomain (not www, not the base domain, and in production)
+  // Handle subdomain rewrites (only in production)
   if (process.env.NODE_ENV === 'production' && hostname.includes('.')) {
     const subdomain = hostname.split('.')[0]
     
@@ -29,15 +29,23 @@ export default clerkMiddleware(async (auth, req) => {
     }
   }
 
-  // Protect specified routes
+  // Protect /chat routes (automatically redirects unauthenticated users to sign-in)
   if (isProtectedRoute(req)) {
-    await auth.protect()
+    auth.protect()  // No await needed – it throws/redirects if not authenticated
   }
 
+  // Debug logging in development
   if (process.env.NODE_ENV === 'development') {
-    const sessionAuth = await auth()
-    console.log('Middleware: Auth check for', req.nextUrl.pathname, '- User:', sessionAuth.userId || 'Anonymous')
+    // auth() returns a Promise in middleware context
+    auth().then(({ userId }) => {
+      console.log('Middleware: Auth check for', req.nextUrl.pathname, '- User:', userId || 'Anonymous')
+    }).catch((err) => {
+      console.error('Middleware: Error getting auth userId', err)
+    })
   }
+
+  // Allow the request to continue
+  return NextResponse.next()
 })
 
 export const config = {

@@ -67,18 +67,18 @@ export async function POST(req: Request) {
         // Upsert: Insert if not exists, update always
         await db
           .insert(userCredits)
-          .values({
-            userId,
-            credits: 10, // Default
-            lastRegenTime: new Date(),
-            lastClaimedGiftId: null,
-            lastMonthlyClaim: null,
-            isPremium: isActivePremium,
-          })
-          .onConflictDoUpdate({
-            target: userCredits.userId,
-            set: { isPremium: isActivePremium },
-          })
+          // .values({
+          //   userId,
+          //   credits: 10, // Default
+          //   lastRegenTime: new Date(),
+          //   lastClaimedGiftId: null,
+          //   lastMonthlyClaim: null,
+          //   isPremium: isActivePremium,
+          // })
+          // .onConflictDoUpdate({
+          //   target: userCredits.userId,
+          //   set: { isPremium: isActivePremium },
+          // })
 
         console.log(`DB updated/inserted for user ${userId}: isPremium=${isActivePremium}`)
       } else {

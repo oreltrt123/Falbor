@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server'
 import { clerkClient } from '@clerk/nextjs/server'
 import { db } from '@/config/db'
-import { eq, sum, gt, desc } from 'drizzle-orm'
+import { eq, sum, gt, desc, sql } from 'drizzle-orm'
 import { userCredits, giftEvents } from '@/config/schema'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -23,6 +23,48 @@ function isMonthPassed(lastClaim: Date | null): boolean {
   return today >= nextMonth
 }
 
+async function getPayPalAccessToken() {
+  const response = await fetch('https://api.paypal.com/v1/oauth2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_SECRET}`).toString('base64')}`,
+    },
+    body: 'grant_type=client_credentials',
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to get PayPal access token');
+  }
+
+  const data = await response.json();
+  return data.access_token;
+}
+
+async function isSubscriptionActive(subscriptionId: string | null): Promise<boolean> {
+  if (!subscriptionId) return false;
+
+  try {
+    const accessToken = await getPayPalAccessToken();
+    const response = await fetch(`https://api.paypal.com/v1/billing/subscriptions/${subscriptionId}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const data = await response.json();
+    return data.status === 'ACTIVE';
+  } catch (error) {
+    console.error('Error checking PayPal subscription status:', error);
+    return false;
+  }
+}
+
 // Helper to calculate and apply regeneration without resetting timer
 async function applyRegeneration(userId: string) {
   let record = await db
@@ -39,8 +81,10 @@ async function applyRegeneration(userId: string) {
       lastRegenTime: new Date(),
       lastClaimedGiftId: null,
       lastMonthlyClaim: null,
-      isPremium: false,
-      lastPremiumDispense: null,
+      lastDispense: null,
+      subscriptionTier: 'none',
+      creditsPerMonth: 0,
+      paypalSubscriptionId: null,
       stripeCustomerId: null,
     })
     record = { 
@@ -49,30 +93,49 @@ async function applyRegeneration(userId: string) {
       lastRegenTime: new Date(), 
       lastClaimedGiftId: null,
       lastMonthlyClaim: null, 
-      isPremium: false,
-      lastPremiumDispense: null,
+      lastDispense: null,
+      subscriptionTier: 'none',
+      creditsPerMonth: 0,
+      paypalSubscriptionId: null,
       stripeCustomerId: null,
     }
   }
 
   const now = new Date()
   const nowMs = now.getTime()
+  const isPaid = record.subscriptionTier !== 'none' && record.paypalSubscriptionId !== null
 
-  if (record.isPremium) {
-    // Premium logic: Monthly 40 credits
+  if (isPaid) {
+    // Check subscription status
+    const active = await isSubscriptionActive(record.paypalSubscriptionId);
+    if (!active) {
+      // Deactivate if not active
+      await db
+        .update(userCredits)
+        .set({ 
+          subscriptionTier: 'none',
+          creditsPerMonth: 0,
+          paypalSubscriptionId: null,
+        })
+        .where(eq(userCredits.userId, userId));
+      // Recurse with free logic
+      return applyRegeneration(userId);
+    }
+
+    // Premium logic: Monthly credits
     let newCredits = record.credits
-    let lastDispense = record.lastPremiumDispense
+    let lastDispense = record.lastDispense
     let secondsUntilNextRegen = 0
 
     if (!lastDispense || isMonthPassed(lastDispense)) {
-      newCredits += 40
+      newCredits += record.creditsPerMonth
       lastDispense = now
       // Update DB
       await db
         .update(userCredits)
         .set({ 
           credits: newCredits,
-          lastPremiumDispense: now,
+          lastDispense: now,
         })
         .where(eq(userCredits.userId, userId))
     } else {
@@ -88,17 +151,17 @@ async function applyRegeneration(userId: string) {
     const updatedRecord = {
       ...record,
       credits: newCredits,
-      lastPremiumDispense: lastDispense,
+      lastDispense: lastDispense,
     }
 
     return { 
       credits: newCredits, 
       secondsUntilNextRegen,
       record: updatedRecord,
-      pendingMonthly: 0 // No pending for premium
+      pendingMonthly: 0 // No pending for paid
     }
   } else {
-    // Non-premium: Hourly regen
+    // Non-paid: Hourly regen
     const lastTimeMs = new Date(record.lastRegenTime).getTime()
     const elapsedMs = nowMs - lastTimeMs
     const fullIntervals = Math.floor(elapsedMs / INTERVAL_MS)
@@ -196,14 +259,14 @@ export async function GET(request: NextRequest) {
   }
 
   const data = await applyRegeneration(userId)
-  const pendingGift = data.record.isPremium ? 0 : await calculatePendingGift(data.record) // No gifts for premium
+  const pendingGift = data.record.subscriptionTier === 'none' ? await calculatePendingGift(data.record) : 0 // No gifts for paid
 
   return NextResponse.json({
     credits: data.credits,
     pendingGift,
     pendingMonthly: data.pendingMonthly,
     secondsUntilNextRegen: data.secondsUntilNextRegen,
-    isPremium: data.record.isPremium,
+    subscriptionTier: data.record.subscriptionTier,
   })
 }
 
@@ -226,8 +289,10 @@ export async function POST(request: NextRequest) {
       lastRegenTime: new Date(),
       lastClaimedGiftId: null,
       lastMonthlyClaim: null,
-      isPremium: false,
-      lastPremiumDispense: null,
+      lastDispense: null,
+      subscriptionTier: 'none',
+      creditsPerMonth: 0,
+      paypalSubscriptionId: null,
       stripeCustomerId: null,
     })
     record = { 
@@ -236,41 +301,31 @@ export async function POST(request: NextRequest) {
       lastRegenTime: new Date(), 
       lastClaimedGiftId: null,
       lastMonthlyClaim: null, 
-      isPremium: false,
-      lastPremiumDispense: null,
+      lastDispense: null,
+      subscriptionTier: 'none',
+      creditsPerMonth: 0,
+      paypalSubscriptionId: null,
       stripeCustomerId: null,
     }
   }
 
-  if (record.isPremium) {
-    // Premium: Apply regen and check if credits available
-    const data = await applyRegeneration(userId)
-    if (data.credits <= 0) {
-      return NextResponse.json({ error: 'Insufficient credits (monthly refill pending)' }, { status: 402 })
-    }
-    // Deduct 1 credit for premium users too (enforce 40/month limit)
-    await db
-      .update(userCredits)
-      .set({ credits: data.credits - 1 })
-      .where(eq(userCredits.userId, userId))
-    return NextResponse.json({ success: true })
-  }
+  const isPaid = record.subscriptionTier !== 'none' && record.paypalSubscriptionId !== null
 
   let body: any = null
   try {
     body = await request.json()
   } catch {}
 
-  // Handle adding a new gift (admin action) - only non-premium
-  if (body?.addGift !== undefined && typeof body.addGift === 'number' && body.addGift > 0) {
+  // Handle adding a new gift (admin action) - only non-paid
+  if (body?.addGift !== undefined && typeof body.addGift === 'number' && body.addGift > 0 && !isPaid) {
     await db.insert(giftEvents).values({
       amount: body.addGift
     })
     return NextResponse.json({ success: true, message: 'Gift event added successfully' })
   }
 
-  // Handle claiming gift - only non-premium
-  if (body?.claimGift === true) {
+  // Handle claiming gift - only non-paid
+  if (body?.claimGift === true && !isPaid) {
     const data = await applyRegeneration(userId)
     const userRecord = data.record
     const pendingGift = await calculatePendingGift(userRecord)
@@ -308,8 +363,8 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  // Handle claiming monthly credits - only non-premium
-  if (body?.claimMonthly === true) {
+  // Handle claiming monthly credits - only non-paid
+  if (body?.claimMonthly === true && !isPaid) {
     const data = await applyRegeneration(userId)
     const userRecord = data.record
     const isAvailable = isMonthPassed(userRecord.lastMonthlyClaim)
@@ -335,7 +390,26 @@ export async function POST(request: NextRequest) {
     })
   }
 
-  // Default: deduct credit for message send - only non-premium
+  // Handle one-time payment for credits or tier
+  if (body?.orderId && body?.credits) {
+    const data = await applyRegeneration(userId);
+    const added = Number(body.credits);
+    if (isNaN(added) || added <= 0) {
+      return NextResponse.json({ error: 'Invalid credits amount' }, { status: 400 });
+    }
+    let updates: any = { credits: data.credits + added };
+    if (body.tier && data.record.subscriptionTier === 'none') {
+      updates.subscriptionTier = body.tier;
+      updates.creditsPerMonth = 0;
+    }
+    await db
+      .update(userCredits)
+      .set(updates)
+      .where(eq(userCredits.userId, userId));
+    return NextResponse.json({ success: true, newCredits: data.credits + added });
+  }
+
+  // Default: deduct credit for message send
   const data = await applyRegeneration(userId)
 
   if (data.credits <= 0) {

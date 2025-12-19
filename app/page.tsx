@@ -11,18 +11,19 @@ import HeroText from "@/components/layout/hero"
 export default async function HomePage() {
   const { userId } = await auth()
   return (
-    <div className="relative min-h-screen flex flex-col bg-[#161616] overflow-hidden">
+    <div className="relative min-h-screen flex flex-col bg-white overflow-hidden">
       <div className="relative z-10 flex flex-col min-h-screen">
-        <Navbar />
         <main 
           className="flex flex-1 flex-col items-center justify-center px-4 w-full"
           style={{
-           backgroundImage: `url("/bg/bg.png")`,
+           backgroundImage: `url("/bg/bg-white.png")`,
            backgroundRepeat: "no-repeat",
            backgroundSize: "cover",
            backgroundPosition: "center",
-           }}>
+           }}
+          >
           <div className="w-full flex flex-col items-center space-y-8 mt-[-140px] ml-5 relative z-10">
+            {/* <img src="/bg/bg-text.png" className="absolute top-[-40vh] ml-[140px] opacity-25" width={800} alt="" /> */}
             <div className="w-full flex flex-col mt-[-140px] items-center space-y-3 z-10">
               <HeroText />
               <div className="w-full flex justify-center">
@@ -40,7 +41,7 @@ export default async function HomePage() {
       <div className="top-[-60px] relative">
        {!userId && <FAQ />}
       </div>
-      <Footer />
+      {/* <Footer /> */}
     </div>
   )
 }

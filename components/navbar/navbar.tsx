@@ -14,6 +14,7 @@ interface CreditsData {
   secondsUntilNextRegen: number
   pendingGift?: number
   pendingMonthly?: number
+  subscriptionTier: string
 }
 
 interface AutomationSettings {
@@ -222,23 +223,26 @@ export function Navbar() {
       <nav className="z-50 fixed w-full">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <Link href="/" className="text-xl font-sans font-light text-white">
-            <img width={140} className="relative top-[-1px]" src="/logo.png" alt="" />
+            <img width={140} className="relative top-[-1px]" src="/logo_light.png" alt="" />
           </Link>
           <div className="flex flex-1 ml-10">
-            {user && (
-              <Link href={"/projects"} className="text-white hover:text-[#f0f0f0]">
+            {/* {user && (
+              <Link href={"/projects"} className="text-black/80 hover:text-black/70">
                 Projects
               </Link>
             )}
-              <Link href={"/about"} className="text-white hover:text-[#f0f0f0] ml-6">
+              <Link href={"/about"} className="text-black/80 hover:text-black/70 ml-6">
                 About
               </Link>
+              <Link href={"/pricing"} className="text-black/80 hover:text-black/70 ml-6">
+                Pricing
+              </Link> */}
           </div>
           <div className="flex items-center gap-4">
             {user ? (
-              <div className="relative top-1">
+              <div className="relative top-1 flex items-center">
                 {creditsData && (
-                  <button className="text-black/90 text-[12px] mb-1 p-1 px-2.5 top-[-6px] relative">
+                  <button className="text-black/90 text-[12px] mt-4 p-1 px-2.5 top-[-6px] relative">
                     <span className="flex items-center gap-2 bg-white rounded-md px-2 py-1">
                       <img
                         src="/icons/credit-card.png"
@@ -251,10 +255,15 @@ export function Navbar() {
                     </span>
                   </button>
                 )}
+                {creditsData && creditsData.subscriptionTier !== 'none' && (
+                  <Badge className="text-[12px] mt-4 p-1 px-2.5 top-[-6px] relative bg-blue-500 text-white">
+                    {creditsData.subscriptionTier.charAt(0).toUpperCase() + creditsData.subscriptionTier.slice(1)}
+                  </Badge>
+                )}
 
                 <button
                   onClick={() => setOpen(!open)}
-                  className="w-8 h-8 rounded-full mt-1 overflow-hidden focus:outline-none cursor-pointer"
+                  className="w-8 h-8 rounded-full mt-1 overflow-hidden focus:outline-none cursor-pointer ml-2"
                 >
                   <img
                     src={user.imageUrl || "/placeholder.svg"}
@@ -265,7 +274,7 @@ export function Navbar() {
 
                 <div
                   ref={dropdownRef}
-                  className={`absolute mt-[-20px] right-0 mt-2 w-56 bg-[#141414] border border-[#3b3b3f2f] rounded-lg shadow-lg z-50 ${
+                  className={`absolute mt-[230px] right-0 w-56 bg-[#141414] border border-[#3b3b3f2f] rounded-lg shadow-lg z-50 ${
                     open ? "opacity-100 translate-y-0 scale-100" : "opacity-0 -translate-y-2 scale-95 pointer-events-none"
                   }`}
                 >
@@ -335,7 +344,7 @@ export function Navbar() {
             ) : (
               <>
                 <Link href={"/sign-in"}>
-                  <button className="text-sm font-medium cursor-pointer text-white">Sign In</button>
+                  <button className="text-sm font-medium cursor-pointer text-black">Sign In</button>
                 </Link>
                 <Link href={"/sign-up"}>
                   <button className="text-sm font-medium cursor-pointer w-[70px] bg-[#ff8c00c0] p-1 rounded-md text-[#e9e9e9]">

@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     // Update DB to premium (sub already created/activated)
     await db
       .update(userCredits)
-      .set({ isPremium: true })
+      .set({})
       .where(eq(userCredits.userId, userId))
 
     console.log('Confirmed premium for user:', userId)

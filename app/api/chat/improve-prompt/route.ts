@@ -14,15 +14,17 @@ export async function POST(request: Request) {
 
   const { projectId, prompt } = await request.json()
 
-  if (!projectId || !prompt?.trim()) {
-    return new Response(JSON.stringify({ error: "Missing projectId or prompt" }), { status: 400 })
+  if (!prompt?.trim()) {
+    return new Response(JSON.stringify({ error: "Missing prompt" }), { status: 400 })
   }
 
-  // Verify project ownership
-  const [project] = await db.select().from(projects).where(eq(projects.id, projectId))
+  // Verify project ownership only if projectId is provided
+  if (projectId) {
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId))
 
-  if (!project || project.userId !== userId) {
-    return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 })
+    if (!project || project.userId !== userId) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 })
+    }
   }
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)

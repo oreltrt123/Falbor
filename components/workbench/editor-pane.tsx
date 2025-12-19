@@ -12,7 +12,7 @@ interface EditorPaneProps {
   isDirty: boolean
   handleSave: () => void
   scrollRef: React.RefObject<HTMLDivElement | null>
-  monacoRef: React.RefObject<any>
+  monacoRef: React.RefObject<any> 
   editorOptions: any
 }
 
@@ -57,16 +57,17 @@ export function EditorPane({
     <div className="flex-1 flex flex-col overflow-hidden">
       {selectedFile ? (
         <>
-          <div className="p-1.5 bg-[#ffffff] border-b border-[#4444442d] flex items-center justify-between">
+          <div className="p-2 bg-[#ffffff] border-b border-[#4444442d] flex items-center justify-between">
             <p className="text-xs text-black font-mono">{selectedFile.path}</p>
+            {/* Save button hidden/disabled for live AI mode */}
             <button
               onClick={handleSave}
-              disabled={!isDirty}
+              disabled={true} // Always disabled
               className={cn(
-                "flex items-center gap-1 text-xs text-blue-500 hover:text-blue-400 p-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                "flex items-center gap-1 text-xs text-blue-500 hover:text-blue-400 p-1 rounded transition-colors opacity-0", // Hidden via opacity
                 isDirty && "text-green-500 hover:text-green-400"
               )}
-              title={isDirty ? "Save changes" : "No changes to save"}
+              title="Read-only mode for AI live updates"
             >
               <Save className="w-3 h-3" />
               {isDirty && <span className="text-xs">Save</span>}
@@ -84,9 +85,12 @@ export function EditorPane({
               height="100%"
               defaultLanguage={getLanguage(selectedFile.path)}
               value={editedContent}
-              onChange={(value) => setEditedContent(value || '')}
+              onChange={(value) => setEditedContent(value || '')} // Kept but readOnly in options
               theme="vs-light"
-              options={editorOptions}
+              options={{
+                ...editorOptions,
+                readOnly: true, // Ensure read-only for live viewing
+              }}
             />
           </div>
         </>

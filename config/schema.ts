@@ -1,6 +1,9 @@
+// File: config/schema.ts
+// Changes: Added 'subdomain' column to deployments table for easier querying in the deployment serving route.
 import { pgTable, text, timestamp, uuid, jsonb, boolean, integer, serial } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { check } from "drizzle-orm/pg-core"
+import { relations } from "drizzle-orm"
 
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -25,6 +28,29 @@ export const projects = pgTable("projects", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   isAutomated: boolean("is_automated").default(false).notNull(),
+})
+
+export const bot_deployments = pgTable("bot_deployments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  platform: text("platform").notNull(),
+  apiToken: text("api_token").notNull(),
+  webhookUrl: text("webhook_url"),
+  botName: text("bot_name"),
+  isActive: boolean("is_active").default(true).notNull(),
+  deployedAt: timestamp("deployed_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  status: text("status").default("active").notNull(),
+  errorMessage: text("error_message"),
+  metadata: jsonb("metadata")
+    .$type<{
+      deployedAt?: string
+      projectTitle?: string
+    } | null>()
+    .default(null),
 })
 
 export const favorites = pgTable("favorites", {
@@ -101,8 +127,10 @@ export const userCredits = pgTable("user_credits", {
   lastRegenTime: timestamp("last_regen_time").defaultNow().notNull(),
   lastClaimedGiftId: uuid("last_claimed_gift_id").references(() => giftEvents.id),
   lastMonthlyClaim: timestamp("last_monthly_claim"),
-  isPremium: boolean("is_premium").default(false).notNull(),
-  lastPremiumDispense: timestamp("last_premium_dispense"),
+  lastDispense: timestamp("last_dispense"),
+  subscriptionTier: text("subscription_tier").default("none").notNull(),
+  creditsPerMonth: integer("credits_per_month").default(0).notNull(),
+  paypalSubscriptionId: text("paypal_subscription_id"),
   stripeCustomerId: text("stripe_customer_id"),
 })
 
@@ -134,6 +162,7 @@ export const deployments = pgTable("deployments", {
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
   deploymentUrl: text("deployment_url").notNull(),
+  subdomain: text("subdomain").notNull(),
   customDomain: text("custom_domain"),
   isPublic: boolean("is_public").default(true).notNull(),
   showBranding: boolean("show_branding").default(true).notNull(),
@@ -198,6 +227,79 @@ export const userCustomKnowledge = pgTable("user_custom_knowledge", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
 
+// ====================
+// DATABASE FEATURE TABLES
+// ====================
+
+export const projectDatabases = pgTable("project_databases", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id")
+    .notNull()
+    .unique()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
+export const projectUsers = pgTable(
+  "project_users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    projectDatabaseId: uuid("project_database_id")
+      .notNull()
+      .references(() => projectDatabases.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    name: text("name"),
+    role: text("role").default("user").notNull(),
+    passwordHash: text("password_hash"), // nullable, matches your frontend/API
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    // Prevent duplicate emails per project database
+    uniqueEmailPerProject: sql`UNIQUE(${table.projectDatabaseId}, ${table.email})`,
+  })
+)
+
+export const projectTables = pgTable("project_tables", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectDatabaseId: uuid("project_database_id")
+    .notNull()
+    .references(() => projectDatabases.id, { onDelete: "cascade" }),
+  tableName: text("table_name").notNull(),
+  columns: jsonb("columns")
+    .$type<Array<{ name: string; type: string; nullable?: boolean }>>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
+export const projectTableRows = pgTable("project_table_rows", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectTableId: uuid("project_table_id")
+    .notNull()
+    .references(() => projectTables.id, { onDelete: "cascade" }),
+  data: jsonb("data").notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
+export const projectDatabaseLogs = pgTable("project_database_logs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectDatabaseId: uuid("project_database_id")
+    .notNull()
+    .references(() => projectDatabases.id, { onDelete: "cascade" }),
+  level: text("level").notNull().default("info"),
+  message: text("message").notNull(),
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
+// ====================
+// TYPE INFERENCES
+// ====================
+
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
 export type Favorite = typeof favorites.$inferSelect
@@ -222,3 +324,17 @@ export type UserCustomKnowledge = typeof userCustomKnowledge.$inferSelect
 export type NewUserCustomKnowledge = typeof userCustomKnowledge.$inferInsert
 export type UserModelConfig = typeof userModelConfigs.$inferSelect
 export type NewUserModelConfig = typeof userModelConfigs.$inferInsert
+export type BotDeployment = typeof bot_deployments.$inferSelect
+export type NewBotDeployment = typeof bot_deployments.$inferInsert
+
+// Database feature types
+export type ProjectDatabase = typeof projectDatabases.$inferSelect
+export type NewProjectDatabase = typeof projectDatabases.$inferInsert
+export type ProjectUser = typeof projectUsers.$inferSelect
+export type NewProjectUser = typeof projectUsers.$inferInsert
+export type ProjectTable = typeof projectTables.$inferSelect
+export type NewProjectTable = typeof projectTables.$inferInsert
+export type ProjectTableRow = typeof projectTableRows.$inferSelect
+export type NewProjectTableRow = typeof projectTableRows.$inferInsert
+export type ProjectDatabaseLog = typeof projectDatabaseLogs.$inferSelect
+export type NewProjectDatabaseLog = typeof projectDatabaseLogs.$inferInsert

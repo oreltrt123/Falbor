@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Loader2, ChevronDown, Brain, FileText, Folder, CheckCircle2, XCircle, Loader, List, AlertCircle, Bug, Code, Copy, Pencil, RefreshCw } from 'lucide-react'
 import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism"
+import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { useState, useEffect, useCallback } from "react"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import remarkGfm from "remark-gfm" // For better Markdown support (tables, etc.)
@@ -30,11 +30,13 @@ interface MessageListProps {
   onCopy?: (content: string) => void
   onEdit?: (id: string, content: string) => void
   onRegenerate?: (id: string) => void
+  onOpenPreview?: (version: string, project: string, codeBlocks: Array<{ filename: string; code: string; language: string }>) => void // New prop for opening preview
 }
 
 function parseAIResponse(content: string) {
   const sections: {
     thinking?: string
+    commentary?:string
     userMessage?: string
     planning?: string
     search?: string
@@ -42,6 +44,8 @@ function parseAIResponse(content: string) {
     files?: { name: string; path: string; status: 'success' | 'error' | 'loading' }[]
     responseText?: string
     codeBlocks?: Array<{ filename: string; code: string; language: string }>
+    previewButton?: { version: string; project: string; text: string }
+    importCard?: { repo: string }
   } = {}
 
   // Extract <Thinking>...</Thinking>
@@ -49,7 +53,11 @@ function parseAIResponse(content: string) {
   if (thinkingMatch) {
     sections.thinking = thinkingMatch[1].trim()
   }
-
+  // Extract <Thinking>...</Thinking>
+  const CommentaryMatch = content.match(/<commentary>([\s\S]*?)<\/commentary>/i)
+  if (CommentaryMatch) {
+    sections.commentary = CommentaryMatch[1].trim()
+  }
   // Extract <UserMessage>...</UserMessage>
   const userMessageMatch = content.match(/<UserMessage>([\s\S]*?)<\/UserMessage>/i)
   if (userMessageMatch) {
@@ -116,6 +124,24 @@ function parseAIResponse(content: string) {
     })
   }
 
+  // Extract <PreviewButton version="..." project="...">...</PreviewButton>
+  const previewButtonMatch = content.match(/<PreviewButton version="(\d+\.\d+)" project="(.+?)">([\s\S]*?)<\/PreviewButton>/i)
+  if (previewButtonMatch) {
+    sections.previewButton = {
+      version: previewButtonMatch[1],
+      project: previewButtonMatch[2],
+      text: previewButtonMatch[3].trim()
+    }
+  }
+
+  // Extract <ImportCard repo="..." />
+  const importCardMatch = content.match(/<ImportCard repo="([^"]+)" \/>/i)
+  if (importCardMatch) {
+    sections.importCard = {
+      repo: importCardMatch[1]
+    }
+  }
+
   // Extract code blocks (existing logic)
   const codeBlockRegex = /\`\`\`(\w+)?\s*(?:file="([^"]+)")?\s*\n([\s\S]*?)\`\`\`/g
   const codeBlocks: Array<{ filename: string; code: string; language: string }> = []
@@ -135,11 +161,14 @@ function parseAIResponse(content: string) {
   // Get response text (enhanced: remove all tags AND code blocks)
   let responseText = content
     .replace(/<Thinking>[\s\S]*?<\/Thinking>/gi, '')
+    .replace(/<commentary>[\s\S]*?<\/commentary>/gi, '')
     .replace(/<UserMessage>[\s\S]*?<\/UserMessage>/gi, '')
     .replace(/<Planning>[\s\S]*?<\/Planning>/gi, '')
     .replace(/<Search>[\s\S]*?<\/Search>/gi, '')
     .replace(/<FileChecks>[\s\S]*?<\/FileChecks>/gi, '')
     .replace(/<Files>[\s\S]*?<\/Files>/gi, '')
+    .replace(/<PreviewButton[\s\S]*?<\/PreviewButton>/gi, '')
+    .replace(/<ImportCard [^>]+ \/>/gi, '')
     .replace(/\`\`\`[\s\S]*?\`\`\`/g, '')
     .trim()
 
@@ -150,7 +179,7 @@ function parseAIResponse(content: string) {
   return sections
 }
 
-export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy, onEdit, onRegenerate }: MessageListProps) {
+export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy, onEdit, onRegenerate, onOpenPreview }: MessageListProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, Record<string, boolean>>>({})
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<{ name: string; content: string } | null>(null)
@@ -256,132 +285,150 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
         const isStreaming = message.id.startsWith("temp-") && index === messages.length - 1
         const isEditing = editingId === message.id
 
+        // Check if this is a terminal error fix response
+        const isTerminalErrorResponse = message.role === 'assistant' && index > 0 && 
+          messages[index - 1].role === 'user' && 
+          messages[index - 1].content.startsWith('[TERMINAL_ERROR_FIX]')
+
+        const messageWrapperClass = cn(
+          "relative max-w-[100%] rounded-lg px-4 py-3",
+          message.role === "user" ? "bg-[#e4e4e4] text-[15px] text-black/75" : "text-[15px] text-black",
+        )
+
+        const renderedMessage = (
+          <div className={messageWrapperClass} role={message.role === "user" ? "user-message" : "assistant-message"} aria-label={`${message.role} message`}>
+            {message.role === "user" ? (
+              <div className="space-y-3 w-full">
+                {/* User's uploaded images (existing) */}
+                {message.imageData?.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedImage(img.url)}
+                    className="block rounded border border-black/10 hover:border-black/20 transition-colors overflow-hidden"
+                    aria-label={`View image ${idx + 1}`}
+                  >
+                    <img
+                      src={img.url || "/placeholder.svg?height=200&width=300"}
+                      alt={`Uploaded image ${idx + 1}`}
+                      className="max-w-xs max-h-48 object-cover hover:opacity-80 transition-opacity"
+                    />
+                  </button>
+                ))}
+                
+                {/* User's uploaded files (existing) */}
+                {message.uploadedFiles?.map((file, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedFile(file)}
+                    className="flex items-center gap-2 px-3 py-2 bg-black/5 hover:bg-black/10 rounded transition-colors text-sm w-full text-left"
+                    aria-label={`View file ${file.name}`}
+                  >
+                    <FileText className="w-4 h-4 flex-shrink-0" />
+                    <span className="truncate">{file.name}</span>
+                  </button>
+                ))}
+                
+                {/* User message content */}
+                {isEditing ? (
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        onEdit?.(message.id, editContent)
+                        setEditingId(null)
+                      } else if (e.key === 'Escape') {
+                        setEditingId(null)
+                      }
+                    }}
+                    className="w-full p-2 border rounded resize-none text-sm bg-white text-black/75"
+                    placeholder="Edit your message..."
+                    autoFocus
+                    rows={3}
+                  />
+                ) : (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-bold text-black">{children}</strong>,
+                      em: ({ children }: { children?: React.ReactNode }) => <em className="italic text-black/80">{children}</em>,
+                      p: ({ children }: { children?: React.ReactNode }) => <p className="text-sm whitespace-pre-wrap leading-relaxed mb-2">{children}</p>,
+                      ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 space-y-1">{children}</ul>,
+                      ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-5 space-y-1">{children}</ol>,
+                      li: ({ children }: { children?: React.ReactNode }) => <li className="text-sm leading-relaxed">{children}</li>,
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                )}
+              </div>
+            ) : (
+              <div className="w-full">
+                <AIMessageContent
+                  message={message}
+                  isStreaming={isStreaming}
+                  expandedSections={expandedSections[message.id] || {}}
+                  onToggleSection={(section) => toggleSection(message.id, section)}
+                  onArtifactClick={onArtifactClick}
+                  onCodeSelect={handleCodeSelect}
+                  onOpenFullModal={() => openFullMessageModal(message)}
+                  onOpenPreview={onOpenPreview}
+                />
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="absolute bottom-2 right-2 flex gap-1">
+              {message.role === "user" ? (
+                <>
+                  {/* <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleCopy(message.content)}
+                    className="h-6 w-6 p-0 relative top-4 bg-white border"
+                    aria-label="Copy message"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button> */}
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const sections = parseAIResponse(message.content)
+                      const textToCopy = sections.responseText || message.content
+                      handleCopy(textToCopy)
+                    }}
+                    className="h-6 w-6 p-0 hover:bg-[#e4e4e4]"
+                    aria-label="Copy response"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        )
+
         return (
           <div
             key={`${message.id}-${index}`}
             className={cn("flex flex-col", message.role === "user" ? "items-end" : "items-start")}
           >
-            <div
-              className={cn(
-                "relative max-w-[100%] rounded-lg px-4 py-3",
-                message.role === "user" ? "bg-[#e4e4e4] text-[15px] text-black/75" : "text-[15px] text-black",
-              )}
-              role={message.role === "user" ? "user-message" : "assistant-message"}
-              aria-label={`${message.role} message`}
-            >
-              {message.role === "user" ? (
-                <div className="space-y-3 w-full">
-                  {/* User's uploaded images (existing) */}
-                  {message.imageData?.map((img, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedImage(img.url)}
-                      className="block rounded border border-black/10 hover:border-black/20 transition-colors overflow-hidden"
-                      aria-label={`View image ${idx + 1}`}
-                    >
-                      <img
-                        src={img.url || "/placeholder.svg?height=200&width=300"}
-                        alt={`Uploaded image ${idx + 1}`}
-                        className="max-w-xs max-h-48 object-cover hover:opacity-80 transition-opacity"
-                      />
-                    </button>
-                  ))}
-                  
-                  {/* User's uploaded files (existing) */}
-                  {message.uploadedFiles?.map((file, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedFile(file)}
-                      className="flex items-center gap-2 px-3 py-2 bg-black/5 hover:bg-black/10 rounded transition-colors text-sm w-full text-left"
-                      aria-label={`View file ${file.name}`}
-                    >
-                      <FileText className="w-4 h-4 flex-shrink-0" />
-                      <span className="truncate">{file.name}</span>
-                    </button>
-                  ))}
-                  
-                  {/* User message content */}
-                  {isEditing ? (
-                    <textarea
-                      value={editContent}
-                      onChange={(e) => setEditContent(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault()
-                          onEdit?.(message.id, editContent)
-                          setEditingId(null)
-                        } else if (e.key === 'Escape') {
-                          setEditingId(null)
-                        }
-                      }}
-                      className="w-full p-2 border rounded resize-none text-sm bg-white text-black/75"
-                      placeholder="Edit your message..."
-                      autoFocus
-                      rows={3}
-                    />
-                  ) : (
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-bold text-black">{children}</strong>,
-                        em: ({ children }: { children?: React.ReactNode }) => <em className="italic text-black/80">{children}</em>,
-                        p: ({ children }: { children?: React.ReactNode }) => <p className="text-sm whitespace-pre-wrap leading-relaxed mb-2">{children}</p>,
-                        ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 space-y-1">{children}</ul>,
-                        ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-5 space-y-1">{children}</ol>,
-                        li: ({ children }: { children?: React.ReactNode }) => <li className="text-sm leading-relaxed">{children}</li>,
-                      }}
-                    >
-                      {message.content}
-                    </ReactMarkdown>
-                  )}
-                </div>
-              ) : (
-                <div className="w-full">
-                  <AIMessageContent
-                    message={message}
-                    isStreaming={isStreaming}
-                    expandedSections={expandedSections[message.id] || {}}
-                    onToggleSection={(section) => toggleSection(message.id, section)}
-                    onArtifactClick={onArtifactClick}
-                    onCodeSelect={handleCodeSelect}
-                    onOpenFullModal={() => openFullMessageModal(message)}
-                  />
-                </div>
-              )}
-
-              {/* Action buttons */}
-              <div className="absolute bottom-2 right-2 flex gap-1">
-                {message.role === "user" ? (
-                  <>
-                    {/* <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleCopy(message.content)}
-                      className="h-6 w-6 p-0 relative top-4 bg-white border"
-                      aria-label="Copy message"
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button> */}
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        const sections = parseAIResponse(message.content)
-                        const textToCopy = sections.responseText || message.content
-                        handleCopy(textToCopy)
-                      }}
-                      className="h-6 w-6 p-0 hover:bg-[#e4e4e4]"
-                      aria-label="Copy response"
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </>
-                )}
+            {isTerminalErrorResponse ? (
+              <div className="w-full bg-red-50 border-2 border-red-400 rounded-lg p-4 mb-4">
+                <h3 className="text-red-800 font-bold mb-3 flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5" />
+                  Terminal Error Explanation & Fix
+                </h3>
+                {renderedMessage}
               </div>
-            </div>
+            ) : (
+              renderedMessage
+            )}
           </div>
         )
       })}
@@ -463,7 +510,7 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
             {selectedOldCode ? (
               <>
                 <div className="flex items-center justify-between p-3 border-b border-[#3A3A3E]">
-                  <h3 className="text-sm font-mono text-white">Diff View: {selectedCode.filename}</h3>
+                  <h3 className="text-sm font-mono text-white">Diff View: ${selectedCode.filename}</h3>
                   <button
                     onClick={() => {
                       setSelectedCode(null)
@@ -583,6 +630,7 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
                 onArtifactClick={onArtifactClick}
                 onCodeSelect={handleCodeSelect}
                 onOpenFullModal={() => {}} // No-op in modal to avoid recursion
+                onOpenPreview={onOpenPreview}
               />
             </div>
           </div>
@@ -600,6 +648,7 @@ function AIMessageContent({
   onArtifactClick,
   onCodeSelect,
   onOpenFullModal,
+  onOpenPreview,
 }: {
   message: Message
   isStreaming: boolean
@@ -608,6 +657,7 @@ function AIMessageContent({
   onArtifactClick?: (artifactId: string) => void
   onCodeSelect: (block: { filename: string; code: string; language: string }) => void
   onOpenFullModal: () => void
+  onOpenPreview?: (version: string, project: string, codeBlocks: Array<{ filename: string; code: string; language: string }>) => void
 }) {
   const sections = parseAIResponse(message.content)
 
@@ -668,7 +718,6 @@ function AIMessageContent({
           </CollapsibleContent>
         </Collapsible>
       )}
-
       {/* User Message Button (existing, renamed to "Read" for understanding) */}
       {sections.userMessage && (
         <Collapsible
@@ -923,8 +972,63 @@ function AIMessageContent({
               <span>Files {sections.files.length}</span>
             </Button> */}
           </CollapsibleTrigger>
+       <Collapsible
+          open={expandedSections.codeBlocks ?? false}
+          onOpenChange={() => onToggleSection('codeBlocks')}
+        >
+          <CollapsibleTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
+              aria-expanded={expandedSections.codeBlocks}
+              aria-controls={`codeBlocks-${message.id}`}
+            >
+              <div className="relative w-4 h-4">
+<svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={cn(
+        "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
+        "opacity-100 translate-y-0",
+        expandedSections?.codeBlocks ? "opacity-0 -translate-y-1" : "",
+        "group-hover:opacity-0 group-hover:-translate-y-1",
+      )}
+      aria-hidden="true"
+    >
+      <path
+        d="M2 1h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5.414L2 13.586A1 1 0 0 1 1 12.414V3a1 1 0 0 1 1-1Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+                <ChevronDown
+                  className={cn(
+                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
+                    "opacity-0 translate-y-1",
+                    expandedSections.codeBlocks ? "opacity-100 translate-y-0" : "",
+                    "group-hover:opacity-100 group-hover:translate-y-0",
+                    expandedSections.codeBlocks && "rotate-180",
+                  )}
+                  aria-hidden="true"
+                />
+              </div>
+              <span>Commentary</span>
+            </Button>
+          </CollapsibleTrigger>
           <CollapsibleContent className="mt-2">
-                <div className="space-y-2 p-1 bg-white w-full rounded-sm shadow-[0px_0px_10px_0px_white]">
+              <div className="p-1 ">
+                <span className="text-[14px] text-[#2e2e2e]">{sections.commentary}</span>
+              </div>
+          </CollapsibleContent>
+        </Collapsible>
+          <CollapsibleContent className="mt-2">
+                {/* <div className="space-y-2 p-1 bg-white w-full rounded-sm shadow-[0px_0px_10px_0px_white]">
                   <h1 className="font-light flex items-center gap-[5px] ml-2 mt-1"><List className="h-4 w-4"/>Plan</h1>
                   {sections.files.map((file, idx) => (
                     <div 
@@ -938,7 +1042,41 @@ function AIMessageContent({
                       <span className="font-mono text-xs text-black/70">{file.path}</span>
                     </div>
                   ))}
-                </div>
+                </div> */}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+
+      {/* New: Import Card Section */}
+      {sections.importCard && (
+        <Collapsible
+          open={expandedSections.importCard ?? true}
+          onOpenChange={() => onToggleSection('importCard')}
+        >
+          <CollapsibleTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-[#e4e4e4] hover:bg-[#d4d4d4] rounded-md px-3 py-2 h-auto group"
+              aria-expanded={expandedSections.importCard}
+              aria-controls={`importCard-${message.id}`}
+            >
+              <ChevronDown
+                className={cn(
+                  "w-4 h-4 transition-transform duration-200 ease-in-out",
+                  expandedSections.importCard ? "rotate-180" : "rotate-0"
+                )}
+                aria-hidden="true"
+              />
+              <span>Importing GitHub Repository</span>
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-1 bg-[#e4e4e4] rounded-b-md px-3 py-2">
+            <div className="flex items-center gap-2 text-green-600">
+              <CheckCircle2 className="w-5 h-5" />
+              <span>Import {sections.importCard.repo}</span>
+            </div>
           </CollapsibleContent>
         </Collapsible>
       )}
@@ -995,10 +1133,10 @@ function AIMessageContent({
                   <div className="p-3 border-b border-gray-200 bg-[#e4e4e496]">
                     <h3 className="font-mono text-sm font-semibold text-black/80 truncate">{block.filename}</h3>
                   </div>
-                  <CardContent className="p-3 max-h-[150px] overflow-y-auto">
+                  <CardContent className="max-h-[150px] overflow-y-auto">
                     <SyntaxHighlighter
                       language={block.language}
-                      style={oneDark}
+                      style={oneLight}
                       customStyle={{ margin: 0, padding: "8px 0", borderRadius: 0 }}
                     >
                       {block.code}
@@ -1009,6 +1147,18 @@ function AIMessageContent({
             </div>
           </CollapsibleContent>
         </Collapsible>
+      )}
+
+      {/* New: Preview Button */}
+      {sections.previewButton && (
+        <div className="mt-4">
+          <Button
+            onClick={() => onOpenPreview?.(sections.previewButton!.version, sections.previewButton!.project, sections.codeBlocks || [])}
+            className="w-full"
+          >
+            {sections.previewButton.text}
+          </Button>
+        </div>
       )}
     </div>
   )

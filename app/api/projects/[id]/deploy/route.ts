@@ -1,3 +1,7 @@
+// app/api/projects/[id]/deploy/route.ts
+// Full corrected file with proper Clerk authentication for Bearer token (session token)
+// Uses auth({ acceptsToken: 'session_token' }) which is the recommended way in Next.js App Router for verifying manual Bearer tokens.
+
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { db } from '@/config/db'
@@ -9,7 +13,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId } = await auth()
+    // Verify the session token sent as Bearer (manual JWT verification)
+    const { userId } = await auth({ acceptsToken: 'session_token' })
+
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -37,11 +43,9 @@ export async function POST(
       return NextResponse.json({ error: 'No files to deploy' }, { status: 400 })
     }
 
-    // Generate subdomain: use project ID or custom name
-    // Format: projectid.falbor.xyz or username-projectid.falbor.xyz
+    // Generate subdomain
     const subdomain = projectId.toLowerCase().replace(/[^a-z0-9-]/g, '-')
     
-    // For localhost testing
     const baseUrl = process.env.NODE_ENV === 'development' 
       ? 'http://localhost:3000'
       : `https://${process.env.NEXT_PUBLIC_BASE_DOMAIN || 'falbor.xyz'}`
@@ -50,7 +54,15 @@ export async function POST(
       ? `${baseUrl}/deploy/${subdomain}`
       : `https://${subdomain}.${process.env.NEXT_PUBLIC_BASE_DOMAIN || 'falbor.xyz'}`
 
-    // Check if deployment already exists
+    // Optional Vercel integration (skip if not configured)
+    let finalDeploymentUrl = deploymentUrl
+    if (project.deploymentConfig?.platform === 'vercel' && project.deploymentConfig.apiKey) {
+      // Vercel logic here (as before, but it's optional and can be removed if not needed)
+      // For now, fallback to local
+      console.warn('Vercel deployment not fully implemented')
+    }
+
+    // Check existing deployment
     const [existingDeployment] = await db
       .select()
       .from(deployments)
@@ -58,17 +70,17 @@ export async function POST(
       .limit(1)
 
     if (existingDeployment) {
-      // Update existing deployment
       await db
         .update(deployments)
         .set({
-          deploymentUrl,
+          deploymentUrl: finalDeploymentUrl,
+          subdomain,
           updatedAt: new Date(),
         })
         .where(eq(deployments.id, existingDeployment.id))
 
       return NextResponse.json({
-        deploymentUrl,
+        deploymentUrl: finalDeploymentUrl,
         isNewDeployment: false,
       })
     }
@@ -78,33 +90,34 @@ export async function POST(
       .insert(deployments)
       .values({
         projectId,
-        deploymentUrl,
+        deploymentUrl: finalDeploymentUrl,
+        subdomain,
         isPublic: true,
         showBranding: true,
       })
       .returning()
 
     return NextResponse.json({
-      deploymentUrl,
+      deploymentUrl: finalDeploymentUrl,
       isNewDeployment: true,
       deployment: newDeployment,
     })
   } catch (error) {
     console.error('[v0] Deploy error:', error)
     return NextResponse.json(
-      { error: 'Failed to deploy project' },
+      { error: error instanceof Error ? error.message : 'Failed to deploy project' },
       { status: 500 }
     )
   }
 }
 
-// Get deployment info
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { userId } = await auth()
+    const { userId } = await auth({ acceptsToken: 'session_token' })
+
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

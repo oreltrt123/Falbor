@@ -1,24 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  async headers() {
+  headers() {
     return [
       {
-        // Apply to all routes (use '/' for root-only if preferred)
-        source: '/(.*)',
+        source: "/(.*)",
         headers: [
-          {
-            key: 'Cross-Origin-Embedder-Policy',
-            value: 'require-corp',
-          },
-          {
-            key: 'Cross-Origin-Opener-Policy',
-            value: 'same-origin',
-          },
-          // Optional but recommended for full compatibility
-          {
-            key: 'Cross-Origin-Resource-Policy',
-            value: 'cross-origin',
-          },
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
+          { key: "Cross-Origin-Embedder-Policy", value: "unsafe-none" },
+          { key: "X-Frame-Options", value: "ALLOWALL" }, // allows iframe preview
         ],
       },
     ];
