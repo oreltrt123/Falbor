@@ -237,6 +237,7 @@ export const projectDatabases = pgTable("project_databases", {
     .notNull()
     .unique()
     .references(() => projects.id, { onDelete: "cascade" }),
+  apiKey: text("api_key"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })

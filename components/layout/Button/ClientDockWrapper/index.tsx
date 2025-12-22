@@ -13,7 +13,7 @@ export default function ClientDockWrapper() {
     setMounted(true)
   }, [])
 
-  const showDock = mounted && !pathname?.startsWith("/chat/")
+  const showDock = mounted && !pathname?.startsWith("/chat/") && !pathname?.startsWith("/deploy/")
 
   if (!showDock) return null
 

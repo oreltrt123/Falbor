@@ -1,5 +1,4 @@
 import { auth } from "@clerk/nextjs/server"
-import OpenAI from "openai"
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import { db } from "@/config/db"
 import { projects, messages, files, artifacts, userCustomKnowledge } from "@/config/schema"
@@ -26,6 +25,25 @@ const CODE_KEYWORDS = [
   "write code",
 ]
 
+const OPENROUTER_MODELS = {
+  "gpt-5.2": "openai/gpt-5.2",
+  "gpt-5.1-codex": "openai/gpt-5.1-codex-max",
+  "claude-opus-4.5": "anthropic/claude-opus-4.5",
+  "claude-sonnet-4.5": "anthropic/claude-sonnet-4.5",
+  "claude-opus-4": "anthropic/claude-opus-4",
+  "grok-4.1": "x-ai/grok-4.1-fast",
+  "claude-3.5-haiku": "anthropic/claude-3.5-haiku",
+  "claude-3.5-sonnet": "anthropic/claude-3.5-sonnet",
+  "grok-3-mini": "x-ai/grok-3-mini",
+}
+
+const PREMIUM_MODELS = [
+  "anthropic/claude-opus-4.5",
+  "anthropic/claude-sonnet-4.5",
+  "anthropic/claude-opus-4",
+  "x-ai/grok-4.1-fast",
+]
+
 export async function POST(request: Request) {
   const { userId } = await auth()
 
@@ -47,6 +65,7 @@ export async function POST(request: Request) {
     uploadedFiles,
     discussMode = false,
     isAutomated = false,
+    selectedModel = "gemini",
   } = body
 
   if (!message) {
@@ -63,7 +82,7 @@ export async function POST(request: Request) {
       .values({
         userId,
         title: message.length > 50 ? `${message.substring(0, 47)}...` : message,
-        selectedModel: "hybrid",
+        selectedModel: selectedModel || "gemini",
         isAutomated,
       })
       .returning({ id: projects.id })
@@ -112,7 +131,7 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ error: "Database error" }), { status: 500 })
   }
 
-  const responseStream = await handleHybridRequest(
+  const responseStream = await handleModelRequest(
     history,
     message,
     imageData,
@@ -120,6 +139,7 @@ export async function POST(request: Request) {
     userId,
     discussMode,
     isAutomated,
+    selectedModel,
   )
 
   return new Response(responseStream, {
@@ -138,7 +158,14 @@ function mapHistoryToGemini(history: any[]) {
   }))
 }
 
-async function handleHybridRequest(
+function mapHistoryToOpenRouter(history: any[]) {
+  return history.map((msg) => ({
+    role: msg.role === "assistant" ? "assistant" : "user",
+    content: msg.content,
+  }))
+}
+
+async function handleModelRequest(
   history: any[],
   message: string,
   imageData: any,
@@ -146,28 +173,50 @@ async function handleHybridRequest(
   userId: string,
   discussMode: boolean,
   isAutomated: boolean,
+  selectedModel: string,
 ) {
   const isCodeRequest = CODE_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
 
-  console.log(`[Hybrid] Code request detected: ${isCodeRequest} for message: "${message.substring(0, 50)}..."`)
+  console.log(`[Model: ${selectedModel}] Code request detected: ${isCodeRequest} for message: "${message.substring(0, 50)}..."`)
 
-  const openaiKey = process.env.OPENAI_API_KEY
-  const googleKey = process.env.GOOGLE_API_KEY
-
-  if (!openaiKey || !googleKey) {
-    return createErrorStream(
-      "API keys not configured. Please add OPENAI_API_KEY and GOOGLE_API_KEY to your environment variables.",
+  if (selectedModel === "gemini") {
+    return handleGeminiRequest(history, message, imageData, projectId, userId, discussMode, isAutomated, isCodeRequest)
+  } else {
+    return handleOpenRouterRequest(
+      history,
+      message,
+      projectId,
+      userId,
+      discussMode,
+      isAutomated,
+      isCodeRequest,
+      selectedModel,
     )
   }
+}
 
-  let openai: any
+async function handleGeminiRequest(
+  history: any[],
+  message: string,
+  imageData: any,
+  projectId: string,
+  userId: string,
+  discussMode: boolean,
+  isAutomated: boolean,
+  isCodeRequest: boolean,
+) {
+  const googleKey = process.env.GOOGLE_API_KEY
+
+  if (!googleKey) {
+    return createErrorStream("Google API key not configured.")
+  }
+
   let genAI: any
   try {
-    openai = new OpenAI({ apiKey: openaiKey })
     genAI = new GoogleGenerativeAI(googleKey)
   } catch (e) {
-    console.error("[Hybrid] SDK init error:", e)
-    return createErrorStream(`Failed to initialize AI clients: ${e}`)
+    console.error("[Gemini] SDK init error:", e)
+    return createErrorStream(`Failed to initialize Gemini: ${e}`)
   }
 
   const maxContinuations = 5
@@ -183,12 +232,10 @@ async function handleHybridRequest(
     }))
 
     const encoder = new TextEncoder()
-    let explanationResponse = ""
-    let codeResponse = ""
+    let fullResponse = ""
 
-    const gptModel = "gpt-4o"
     const geminiModel = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-exp",
+      model: "gemini-3-flash-preview",
       systemInstruction: systemPrompt,
       generationConfig: { maxOutputTokens: 8192 },
     })
@@ -196,158 +243,61 @@ async function handleHybridRequest(
     return new ReadableStream({
       async start(controller) {
         try {
-          if (!isCodeRequest) {
-            console.log("[Hybrid] Using GPT-4o for conversational response")
-
-            const messages = [
-              { role: "system", content: systemPrompt },
-              ...conversationHistory.map((msg) => ({ role: msg.role, content: msg.content })),
-              { role: "user", content: message },
-            ]
-
-            let continuationCount = 0
-            do {
-              const stream = await openai.chat.completions.create({
-                model: gptModel,
-                messages,
-                max_tokens: 8192,
-                stream: true,
-              })
-
-              let stopReason = null
-              for await (const chunk of stream) {
-                const text = chunk.choices[0]?.delta?.content || ""
-                if (text) {
-                  explanationResponse += text
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
-                }
-                if (chunk.choices[0]?.finish_reason) {
-                  stopReason = chunk.choices[0].finish_reason
-                }
-              }
-
-              if (stopReason === "length" && continuationCount < maxContinuations) {
-                continuationCount++
-                messages.push({ role: "assistant", content: explanationResponse })
-                messages.push({ role: "user", content: continueMessage })
-              } else {
-                break
-              }
-            } while (true)
-
-            await saveAssistantMessage(
-              projectId,
-              explanationResponse,
-              [],
-              controller,
-              encoder,
-              undefined,
-              false,
-              discussMode,
-              isAutomated,
-            )
+          let userPrompt = message
+          if (isCodeRequest) {
+            console.log("[Gemini] Using Gemini for code generation with explanation")
+            userPrompt = `${message}\n\nProvide a clear, helpful explanation of what you'll build and how it works. Keep it concise (2-4 paragraphs).\n\nThen, generate ONLY the code files requested with proper syntax in this format:\n\`\`\`language file="path/to/file.ext"\n// code here\n\`\`\`\nFocus purely on generating clean, production-ready code after the explanation.`
           } else {
-            console.log("[Hybrid] Using GPT-4o + Gemini for code generation")
-
-            const explanationPrompt = `${message}\n\nYou are the explanation expert. Provide a clear, helpful response explaining what you'll build and how it works. Keep it concise (2-4 paragraphs). The code specialist will handle the actual implementation.`
-
-            const codePrompt = `${message}\n\nYou are the code generation expert. Generate ONLY the code files requested with proper syntax:\n\`\`\`language file="path/to/file.ext"\n// code here\n\`\`\`\n\nDo NOT include explanations - the explanation expert handles that. Focus purely on generating clean, production-ready code.`
-
-            console.log("[Hybrid] Streaming GPT-4o explanation...")
-
-            const messages = [
-              { role: "system", content: "You provide clear explanations. Be concise and helpful." },
-              ...conversationHistory.map((msg) => ({ role: msg.role, content: msg.content })),
-              { role: "user", content: explanationPrompt },
-            ]
-
-            let continuationCount = 0
-            do {
-              const stream = await openai.chat.completions.create({
-                model: gptModel,
-                messages,
-                max_tokens: 2000,
-                stream: true,
-              })
-
-              let stopReason = null
-              for await (const chunk of stream) {
-                const text = chunk.choices[0]?.delta?.content || ""
-                if (text) {
-                  explanationResponse += text
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
-                }
-                if (chunk.choices[0]?.finish_reason) {
-                  stopReason = chunk.choices[0].finish_reason
-                }
-              }
-
-              if (stopReason === "length" && continuationCount < maxContinuations) {
-                continuationCount++
-                messages.push({ role: "assistant", content: explanationResponse })
-                messages.push({ role: "user", content: continueMessage })
-              } else {
-                break
-              }
-            } while (true)
-
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "\n\n**Code:**\n\n" })}\n\n`))
-
-            console.log("[Hybrid] Streaming Gemini code...")
-
-            const contents = [
-              ...mapHistoryToGemini(conversationHistory),
-              { role: "user", parts: [{ text: codePrompt }] },
-            ]
-
-            continuationCount = 0
-            do {
-              const stream = await geminiModel.generateContentStream({
-                contents,
-              })
-
-              let finishReason = null
-              for await (const chunk of stream.stream) {
-                const part = chunk.candidates?.[0]?.content?.parts?.[0]
-                if (part?.text) {
-                  codeResponse += part.text
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: part.text })}\n\n`))
-                }
-                if (chunk.candidates?.[0]?.finishReason) {
-                  finishReason = chunk.candidates[0].finishReason
-                }
-              }
-
-              if (finishReason === "MAX_TOKENS" && continuationCount < maxContinuations) {
-                continuationCount++
-                contents.push({ role: "model", parts: [{ text: codeResponse }] })
-                contents.push({ role: "user", parts: [{ text: continueMessage }] })
-              } else {
-                break
-              }
-            } while (true)
-
-            const fullResponse = `**Response:**\n\n${explanationResponse}\n\n**Code:**\n\n${codeResponse}`
-
-            console.log(
-              `[Hybrid] GPT-4o response length: ${explanationResponse.length}, Gemini response length: ${codeResponse.length}`,
-            )
-            console.log(`[Hybrid] Extracted code blocks: ${extractCodeBlocks(fullResponse).length}`)
-
-            await saveAssistantMessage(
-              projectId,
-              fullResponse,
-              [],
-              controller,
-              encoder,
-              undefined,
-              false,
-              discussMode,
-              isAutomated,
-            )
+            console.log("[Gemini] Using Gemini for conversational response")
           }
+
+          const contents = [
+            ...mapHistoryToGemini(conversationHistory),
+            { role: "user", parts: [{ text: userPrompt }] },
+          ]
+
+          let continuationCount = 0
+          do {
+            const stream = await geminiModel.generateContentStream({
+              contents,
+            })
+
+            let finishReason = null
+            for await (const chunk of stream.stream) {
+              const part = chunk.candidates?.[0]?.content?.parts?.[0]
+              if (part?.text) {
+                fullResponse += part.text
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: part.text })}\n\n`))
+              }
+              if (chunk.candidates?.[0]?.finishReason) {
+                finishReason = chunk.candidates[0].finishReason
+              }
+            }
+
+            if (finishReason === "MAX_TOKENS" && continuationCount < maxContinuations) {
+              continuationCount++
+              contents.push({ role: "model", parts: [{ text: fullResponse }] })
+              contents.push({ role: "user", parts: [{ text: continueMessage }] })
+            } else {
+              break
+            }
+          } while (true)
+
+          console.log(`[Gemini] Response length: ${fullResponse.length}`)
+
+          await saveAssistantMessage(
+            projectId,
+            fullResponse,
+            [],
+            controller,
+            encoder,
+            undefined,
+            false,
+            discussMode,
+            isAutomated,
+          )
         } catch (error) {
-          console.error("[Hybrid] Stream error:", error)
+          console.error("[Gemini] Stream error:", error)
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`))
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, projectId })}\n\n`))
         } finally {
@@ -356,8 +306,140 @@ async function handleHybridRequest(
       },
     })
   } catch (e) {
-    console.error("[Hybrid] Handler error:", e)
-    return createErrorStream(`Hybrid handler failed: ${e}`)
+    console.error("[Gemini] Handler error:", e)
+    return createErrorStream(`Gemini handler failed: ${e}`)
+  }
+}
+
+async function handleOpenRouterRequest(
+  history: any[],
+  message: string,
+  projectId: string,
+  userId: string,
+  discussMode: boolean,
+  isAutomated: boolean,
+  isCodeRequest: boolean,
+  selectedModel: string,
+) {
+  const openRouterKey = process.env.OPENROUTER_API_KEY
+
+  if (!openRouterKey) {
+    return createErrorStream("OpenRouter API key not configured.")
+  }
+
+  const modelId = OPENROUTER_MODELS[selectedModel as keyof typeof OPENROUTER_MODELS]
+  if (!modelId) {
+    return createErrorStream(`Invalid model: ${selectedModel}`)
+  }
+
+  try {
+    const customKnowledgePrompt = await getCustomKnowledge(userId)
+    const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + customKnowledgePrompt
+
+    const conversationHistory = history.slice(0, -1).map((msg) => ({
+      role: msg.role === "assistant" ? "assistant" : "user",
+      content: msg.content,
+    }))
+
+    const encoder = new TextEncoder()
+    let fullResponse = ""
+
+    let userPrompt = message
+    if (isCodeRequest) {
+      console.log(`[OpenRouter/${modelId}] Using for code generation with explanation`)
+      userPrompt = `${message}\n\nProvide a clear, helpful explanation of what you'll build and how it works. Keep it concise (2-4 paragraphs).\n\nThen, generate ONLY the code files requested with proper syntax in this format:\n\`\`\`language file="path/to/file.ext"\n// code here\n\`\`\`\nFocus purely on generating clean, production-ready code after the explanation.`
+    }
+
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...conversationHistory,
+      { role: "user", content: userPrompt },
+    ]
+
+    return new ReadableStream({
+      async start(controller) {
+        try {
+          const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${openRouterKey}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+              "X-Title": "AI Website Builder",
+            },
+            body: JSON.stringify({
+              model: modelId,
+              messages,
+              stream: true,
+              max_tokens: 8192,
+            }),
+          })
+
+          if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(`OpenRouter API error: ${response.status} ${errorText}`)
+          }
+
+          const reader = response.body?.getReader()
+          if (!reader) {
+            throw new Error("No response body reader")
+          }
+
+          const decoder = new TextDecoder()
+          let buffer = ""
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split("\n")
+            buffer = lines.pop() || ""
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const data = line.slice(6)
+                if (data === "[DONE]") continue
+
+                try {
+                  const parsed = JSON.parse(data)
+                  const content = parsed.choices?.[0]?.delta?.content
+                  if (content) {
+                    fullResponse += content
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: content })}\n\n`))
+                  }
+                } catch (e) {
+                  console.error("[OpenRouter] Parse error:", e)
+                }
+              }
+            }
+          }
+
+          console.log(`[OpenRouter/${modelId}] Response length: ${fullResponse.length}`)
+
+          await saveAssistantMessage(
+            projectId,
+            fullResponse,
+            [],
+            controller,
+            encoder,
+            undefined,
+            false,
+            discussMode,
+            isAutomated,
+          )
+        } catch (error) {
+          console.error(`[OpenRouter/${modelId}] Stream error:`, error)
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`))
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, projectId })}\n\n`))
+        } finally {
+          controller.close()
+        }
+      },
+    })
+  } catch (e) {
+    console.error("[OpenRouter] Handler error:", e)
+    return createErrorStream(`OpenRouter handler failed: ${e}`)
   }
 }
 

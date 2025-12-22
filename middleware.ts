@@ -4,47 +4,42 @@ import type { NextRequest } from "next/server"
 
 const isProtectedRoute = createRouteMatcher(["/chat(.*)"])
 
-export default clerkMiddleware((auth, req: NextRequest) => {
-  // Skip auth for webhook routes
-  if (req.nextUrl.pathname.startsWith('/api/webhooks') || req.nextUrl.pathname.startsWith('/api/stripe/webhook')) {
-    console.log('Middleware: Skipping auth for webhook:', req.nextUrl.pathname)
+export default clerkMiddleware(async (auth, req: NextRequest) => {
+  if (
+    req.nextUrl.pathname.startsWith("/api/webhooks") ||
+    req.nextUrl.pathname.startsWith("/api/stripe/webhook") ||
+    req.nextUrl.pathname.startsWith("/deploy/")
+  ) {
+    console.log("[v0] Middleware: Skipping auth for:", req.nextUrl.pathname)
     return NextResponse.next()
   }
 
-  const hostname = req.headers.get('host') || ''
-  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || 'falbor.xyz'
-  
-  // Handle subdomain rewrites (only in production)
-  if (process.env.NODE_ENV === 'production' && hostname.includes('.')) {
-    const subdomain = hostname.split('.')[0]
-    
+  const hostname = req.headers.get("host") || ""
+  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz"
+
+  if (process.env.NODE_ENV === "production" && hostname.includes(".")) {
+    const subdomain = hostname.split(".")[0]
+
     // Skip if it's www or the base domain itself
-    if (subdomain !== 'www' && hostname !== baseDomain) {
+    if (subdomain !== "www" && hostname !== baseDomain) {
       // Rewrite to /deploy/[subdomain]
       const url = req.nextUrl.clone()
       url.pathname = `/deploy/${subdomain}${url.pathname}`
-      
-      console.log('[v0] Subdomain detected:', subdomain, '-> rewriting to:', url.pathname)
+
+      console.log("[v0] Subdomain detected:", subdomain, "-> rewriting to:", url.pathname)
       return NextResponse.rewrite(url)
     }
   }
 
-  // Protect /chat routes (automatically redirects unauthenticated users to sign-in)
   if (isProtectedRoute(req)) {
-    auth.protect()  // No await needed – it throws/redirects if not authenticated
+    await auth.protect()
   }
 
-  // Debug logging in development
-  if (process.env.NODE_ENV === 'development') {
-    // auth() returns a Promise in middleware context
-    auth().then(({ userId }) => {
-      console.log('Middleware: Auth check for', req.nextUrl.pathname, '- User:', userId || 'Anonymous')
-    }).catch((err) => {
-      console.error('Middleware: Error getting auth userId', err)
-    })
+  if (process.env.NODE_ENV === "development") {
+    const { userId } = await auth()
+    console.log("[v0] Middleware: Auth check for", req.nextUrl.pathname, "- User:", userId || "Anonymous")
   }
 
-  // Allow the request to continue
   return NextResponse.next()
 })
 

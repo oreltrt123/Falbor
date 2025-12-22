@@ -62,13 +62,9 @@ export default function FAQ({
       question: 'What AI models does Falbor use?',
       answer: (
         <>
-          <p className='text-muted-foreground mb-4 max-w-[580px]'>Falbor integrates Gemini 2.0, Claude 4.5, and ChatGPT 5 to deliver high-quality, context-aware website generation across multiple modalities.</p>
+          <p className='text-muted-foreground mb-4 max-w-[580px]'>Falbor integrates Gemini 3 Flash, Claude 4.5 Opus and Sonnet, and ChatGPT 5.2 and GPT codex Max 5.1, and Grok 4.1 Fast and Grok 3 Mini to deliver high-quality, context-aware website generation across multiple modalities.</p>
         </>
       ),
-    },
-    {
-      question: 'Is Falbor completely free?',
-      answer: <p className='text-muted-foreground mb-4 max-w-[580px]'>Yes, Falbor is 100% free to use, with no subscriptions, hidden fees, or usage limits—build as many sites as you want.</p>,
     },
     {
       question: 'Can I import GitHub projects into Falbor?',

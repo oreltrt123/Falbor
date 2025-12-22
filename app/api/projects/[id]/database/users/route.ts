@@ -1,7 +1,8 @@
+// File: app/api/projects/[id]/database/users/route.ts
+
 import { type NextRequest, NextResponse } from "next/server"
 import { sql, getOrCreateProjectDatabase, addDatabaseLog } from "@/config/db"
 
-// GET - Get all users for project
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -19,12 +20,11 @@ export async function GET(
 
     return NextResponse.json({ users })
   } catch (error) {
-    console.error("[Database Users API] Error:", error)
+    console.error("[Database Users API] GET Error:", error)
     return NextResponse.json({ error: "Failed to get users" }, { status: 500 })
   }
 }
 
-// POST - Create new user
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -32,7 +32,7 @@ export async function POST(
   try {
     const { id: projectId } = await params
     const body = await request.json()
-    const { email, name, role, password_hash } = body
+    const { email, name, role = "user", password_hash } = body
 
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 })
@@ -40,9 +40,9 @@ export async function POST(
 
     const database = await getOrCreateProjectDatabase(projectId)
 
-    // Check if user already exists
+    // Prevent duplicate emails
     const existing = await sql`
-      SELECT * FROM project_users 
+      SELECT id FROM project_users 
       WHERE project_database_id = ${database.id} AND email = ${email}
     `
 
@@ -51,16 +51,25 @@ export async function POST(
     }
 
     const result = await sql`
-      INSERT INTO project_users (project_database_id, email, name, role, password_hash)
-      VALUES (${database.id}, ${email}, ${name || null}, ${role || "user"}, ${password_hash || null})
+      INSERT INTO project_users 
+      (project_database_id, email, name, role, password_hash)
+      VALUES 
+      (${database.id}, ${email}, ${name || null}, ${role}, ${password_hash || null})
       RETURNING id, email, name, role, created_at, updated_at
     `
 
-    await addDatabaseLog(database.id, "success", `User created: ${email}`, { email, role })
+    const newUser = result[0]
 
-    return NextResponse.json({ user: result[0] })
+    await addDatabaseLog(
+      database.id,
+      "success",
+      `User created: ${email}`,
+      { email, name, role, createdBy: "API" }
+    )
+
+    return NextResponse.json({ user: newUser }, { status: 201 })
   } catch (error) {
-    console.error("[Database Users API] Error:", error)
+    console.error("[Database Users API] POST Error:", error)
     return NextResponse.json({ error: "Failed to create user" }, { status: 500 })
   }
 }

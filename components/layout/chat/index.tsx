@@ -5,13 +5,12 @@ import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "re
 import { useRouter } from "next/navigation"
 import { useUser } from "@clerk/nextjs"
 import { Button } from "@/components/ui/button"
-import { AlertCircle, ChartBarDecreasingIcon, Palette, StarsIcon } from "lucide-react"
-import { Loader, X, Mic, Plus, Circle, MoreHorizontal, ArrowLeft } from "lucide-react"
+import { AlertCircle, ChartBarDecreasingIcon, Palette, StarsIcon, Crown } from "lucide-react"
+import { Loader, X, Mic, Plus, Circle, MoreHorizontal, ArrowLeft, ChevronDown } from "lucide-react"
 import type { Message } from "@/config/schema"
 import Link from "next/link"
-import { PricingModal } from "@/components/models/PricingModal"
 import { FileModal } from "@/components/models/FileModal"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
@@ -36,11 +35,9 @@ interface ChatInputProps {
 }
 
 interface CreditsData {
-  credits: number
-  secondsUntilNextRegen: number
-  pendingGift?: number
-  pendingMonthly?: number
-  isPremium: boolean
+  subscriptionTier: string
+  credits?: number
+  secondsUntilNextRegen?: number
 }
 
 export interface ChatInputRef {
@@ -48,13 +45,11 @@ export interface ChatInputRef {
 }
 
 interface ModelOption {
+  id: string
   label: string
-  icon: string
-  color: string
-  soon?: string
+  isPremium: boolean
+  iconUrl: string // ← added for logo
 }
-
-export type ModelType = "gemini" | "claude" | "gpt" | "deepseek" | "gptoss" | "runware"
 
 type DesignConfig = {
   primaryColor: string
@@ -143,13 +138,26 @@ const designPresets: Record<string, DesignConfig> = {
   },
 }
 
+const MODEL_OPTIONS: ModelOption[] = [
+  { id: "claude-opus-4.5", label: "Claude Opus 4.5", isPremium: true, iconUrl: "/icons/claude.png" },
+  { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5", isPremium: true, iconUrl: "/icons/claude.png" },
+  { id: "claude-opus-4", label: "Claude Opus 4", isPremium: true, iconUrl: "/icons/claude.png" },
+  { id: "claude-3.5-haiku", label: "Claude 3.5 Haiku", isPremium: false, iconUrl: "/icons/claude.png" },
+  { id: "claude-3.5-sonnet", label: "Claude 3.5 Sonnet", isPremium: false, iconUrl: "/icons/claude.png" },
+  { id: "gemini", label: "Gemini 3 Flash", isPremium: false, iconUrl: "/icons/gemini.png" },
+  { id: "gpt-5.2", label: "GPT-5.2", isPremium: false, iconUrl: "/icons/openai.png" },
+  { id: "gpt-5.1-codex", label: "GPT-5.1 Codex Max", isPremium: false, iconUrl: "/icons/openai.png" },
+  { id: "grok-4.1", label: "Grok 4.1 Fast", isPremium: true, iconUrl: "https://x.ai/favicon.ico" },
+  { id: "grok-3-mini", label: "Grok 3 Mini", isPremium: false, iconUrl: "https://x.ai/favicon.ico" },
+]
+
 const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInputImpl(
   {
     isAuthenticated,
     projectId,
     onNewMessage,
     placeholder = "What would you like to build today?",
-    initialModel = "hybrid",
+    initialModel = "gemini",
     connected = false,
     onCloseIdeas,
     isAutomated = false,
@@ -170,18 +178,9 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   const [creditsData, setCreditsData] = useState<CreditsData | null>(null)
   const [timeLeft, setTimeLeft] = useState(0)
   const [isDiscussMode, setIsDiscussMode] = useState(false)
-  const [showPricingModal, setShowPricingModal] = useState(false)
   const [selectedFile, setSelectedFile] = useState<{ name: string; content: string } | null>(null)
-  const [enabledModels, setEnabledModels] = useState<ModelType[]>([
-    "gemini",
-    "claude",
-    "gpt",
-    "deepseek",
-    "gptoss",
-    "runware",
-  ])
   const [isListening, setIsListening] = useState(false)
-  const [selectedModel, setSelectedModel] = useState<ModelType>(initialModel as ModelType)
+  const [selectedModel, setSelectedModel] = useState<string>(initialModel)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [menuMode, setMenuMode] = useState<'main' | 'design'>('main')
@@ -189,6 +188,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   const [selectedDesign, setSelectedDesign] = useState<string | null>(null)
   const [designConfig, setDesignConfig] = useState<DesignConfig | null>(null)
   const [tempConfig, setTempConfig] = useState<DesignConfig>(designPresets['Base'])
+  const [showPremiumAlert, setShowPremiumAlert] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
@@ -207,8 +207,8 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
   const draftKey = projectId ? `chat-draft-${projectId}` : "chat-draft-global"
   const designKey = 'chat-design-config'
+  const modelKey = 'chat-selected-model'
 
-  // Load draft from localStorage on mount or projectId change
   useEffect(() => {
     const savedDraft = localStorage.getItem(draftKey)
     if (savedDraft && savedDraft.trim()) {
@@ -216,7 +216,6 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     }
   }, [draftKey])
 
-  // Load design from localStorage on mount
   useEffect(() => {
     const savedDesign = localStorage.getItem(designKey)
     if (savedDesign) {
@@ -226,12 +225,22 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     }
   }, [])
 
-  // Save design to localStorage when changed
   useEffect(() => {
     if (selectedDesign && designConfig) {
       localStorage.setItem(designKey, JSON.stringify({ name: selectedDesign, config: designConfig }))
     }
   }, [selectedDesign, designConfig])
+
+  useEffect(() => {
+    const savedModel = localStorage.getItem(modelKey)
+    if (savedModel) {
+      setSelectedModel(savedModel)
+    }
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem(modelKey, selectedModel)
+  }, [selectedModel])
 
   const drawVisualizer = () => {
     const canvas = canvasRef.current
@@ -287,26 +296,6 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   }, [isListening])
 
   useEffect(() => {
-    const fetchEnabledModels = async () => {
-      if (!user?.id || !isLoaded) return
-      try {
-        const res = await fetch("/api/user/model-config")
-        if (res.ok) {
-          const data = await res.json()
-          setEnabledModels(data.enabledModels || ["gemini", "claude", "gpt", "deepseek", "gptoss", "runware"])
-          // If current selected model is disabled, switch to first enabled model
-          if (!data.enabledModels.includes(selectedModel)) {
-            setSelectedModel(data.enabledModels[0] || "gemini")
-          }
-        }
-      } catch (err) {
-        console.error("[v0] Failed to fetch enabled models:", err)
-      }
-    }
-    fetchEnabledModels()
-  }, [user?.id, isLoaded])
-
-  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowModelDropdown(false)
@@ -333,7 +322,9 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
       if (res.ok) {
         const data: CreditsData = await res.json()
         setCreditsData(data)
-        setTimeLeft(data.secondsUntilNextRegen)
+        if (data.secondsUntilNextRegen) {
+          setTimeLeft(data.secondsUntilNextRegen)
+        }
       } else {
         console.error(`Failed to fetch credits: ${res.status} ${res.statusText}`)
       }
@@ -395,7 +386,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
         } else {
           displayName = file.name
         }
-        displayName = displayName.substring(0, 40) // Truncate if too long
+        displayName = displayName.substring(0, 40)
         setUploadedFiles((prev) => [
           ...prev,
           {
@@ -566,6 +557,20 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     }
   }, [showDesignModal, designConfig])
 
+  const handleModelSelect = (modelId: string) => {
+    const model = MODEL_OPTIONS.find(m => m.id === modelId)
+    if (!model) return
+
+    const hasSubscription = creditsData?.subscriptionTier !== "none"
+    if (model.isPremium && !hasSubscription) {
+      setShowPremiumAlert(true)
+      return
+    }
+
+    setSelectedModel(modelId)
+    setShowModelDropdown(false)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isLoading) {
@@ -582,21 +587,16 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
     if (!message.trim() && uploadedFiles.length === 0 && !designConfig) return
 
-    // const currentOption = modelOptions[selectedModel]
-    // if (currentOption?.soon) {
-    //   alert(`${currentOption.label} is coming soon! Please select another model.`)
-    //   return
-    // }
-
-    if (isLoaded && creditsData && !creditsData.isPremium && creditsData.credits <= 0 && !isAutomated) {
-      alert("Insufficient credits. Upgrade to Premium for more!")
+    const selectedModelOption = MODEL_OPTIONS.find(m => m.id === selectedModel)
+    const hasSubscription = creditsData?.subscriptionTier !== "none"
+    if (selectedModelOption?.isPremium && !hasSubscription) {
+      setShowPremiumAlert(true)
       return
     }
 
     setIsLoading(true)
     let userMessage = message.trim()
 
-    // Format uploaded files into the message for better organization
     if (uploadedFiles.length > 0) {
       const fileSections = uploadedFiles
         .map(
@@ -604,14 +604,14 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             `\n\n## File: ${file.name}\n\`\`\`${file.type.split("/")[1] || "text/plain"}\n${file.content}\n\`\`\``,
         )
         .join("")
-      userMessage = userMessage ? `${userMessage}${fileSections}` : fileSections.slice(1) // Remove leading \n if no message
+      userMessage = userMessage ? `${userMessage}${fileSections}` : fileSections.slice(1)
     }
 
     if (designConfig) {
       userMessage += `\n\n## Design System: ${selectedDesign || 'Custom'}\n${JSON.stringify(designConfig, null, 2)}`
     }
 
-    const filesToSend = [] // No longer sending raw files, formatted in message
+    const filesToSend = []
 
     try {
       if (!isAutomated) {
@@ -636,7 +636,6 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
         await refetchCredits()
       }
 
-      // Clear draft on successful submit
       localStorage.removeItem(draftKey)
       setMessage("")
       setSelectedImage(null)
@@ -671,7 +670,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
         }
         onNewMessage(tempAssistant)
 
-        console.log("[v0] Sending message to hybrid AI system")
+        console.log(`[ChatInput] Sending message with model: ${selectedModel}`)
 
         abortControllerRef.current = new AbortController()
 
@@ -686,6 +685,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               uploadedFiles: null,
               discussMode: isDiscussMode,
               isAutomated,
+              selectedModel,
             }),
             signal: abortControllerRef.current.signal,
           })
@@ -708,7 +708,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             try {
               const { done, value } = await reader.read()
               if (done) {
-                console.log("[v0] Stream completed")
+                console.log("[ChatInput] Stream completed")
                 break
               }
 
@@ -725,7 +725,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                     const data = JSON.parse(line.slice(6))
 
                     if (data.error) {
-                      console.error("[v0] Stream error:", data.error)
+                      console.error("[ChatInput] Stream error:", data.error)
                       streamError = true
                       alert(`Error: ${data.error}`)
                       break
@@ -743,7 +743,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                     }
 
                     if (data.done) {
-                      console.log("[v0] Received done signal, message ID:", data.messageId)
+                      console.log("[ChatInput] Received done signal, message ID:", data.messageId)
 
                       onNewMessage({
                         id: data.messageId || `final-${Date.now()}`,
@@ -758,22 +758,22 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
                       })
                     }
                   } catch (parseError) {
-                    console.error("[v0] JSON parse error:", parseError, "Line:", line)
+                    console.error("[ChatInput] JSON parse error:", parseError, "Line:", line)
                   }
                 }
               }
 
               if (streamError) break
             } catch (readError) {
-              console.error("[v0] Stream read error:", readError)
+              console.error("[ChatInput] Stream read error:", readError)
               break
             }
           }
         } catch (fetchError) {
           if (fetchError instanceof Error && fetchError.name === "AbortError") {
-            console.log("[v0] Request aborted by user")
+            console.log("[ChatInput] Request aborted by user")
           } else {
-            console.error("[v0] Fetch error:", fetchError)
+            console.error("[ChatInput] Fetch error:", fetchError)
             alert(`Network error: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`)
           }
         } finally {
@@ -791,6 +791,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
             uploadedFiles: null,
             discussMode: isDiscussMode,
             isAutomated,
+            selectedModel,
           }),
           signal: abortControllerRef.current.signal,
         })
@@ -810,7 +811,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
         router.push(`/chat/${newId}`)
       }
     } catch (err) {
-      console.error("[v0] Submit error:", err)
+      console.error("[ChatInput] Submit error:", err)
       alert("An error occurred while sending your message. Please try again.")
     } finally {
       setIsLoading(false)
@@ -824,10 +825,6 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     }
   }
 
-  const handleUpgradeClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    setShowPricingModal(true)
-  }
 
   const handleFixError = () => {
     if (!previewError || !projectId) return
@@ -906,7 +903,8 @@ Please analyze this error and fix it in the code. Make sure to:
   const formRoundedClass = connected ? "rounded-t-[13px]" : "rounded-md"
   const formBorderClass = connected ? "border-b-0" : "border-3"
 
-  const showUpgradeButton = creditsData && !creditsData.isPremium && creditsData.credits <= 0 && !isAutomated
+  const currentModel = MODEL_OPTIONS.find(m => m.id === selectedModel) || MODEL_OPTIONS[0]
+  const hasSubscription = creditsData?.subscriptionTier !== "none"
 
   return (
     <div className="">
@@ -956,7 +954,6 @@ Please analyze this error and fix it in the code. Make sure to:
         </div>
       )}
 
-      {/* Preview Error Banner – updated design & behavior */}
       {previewError && (
         <div className="w-full bg-red-50 border border-red-200 rounded-lg p-3 flex items-start justify-between mb-3 shadow-sm">
           <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -994,7 +991,9 @@ Please analyze this error and fix it in the code. Make sure to:
       )}
 
       <form
-        onSubmit={handleSubmit} className={`relative bg-[#ecececdc] border border-[#dbd9d9b2] p-1 ${formRoundedClass}`}>
+        onSubmit={handleSubmit}
+        className={`relative bg-[#ecececdc] border border-[#dbd9d9b2] p-1 ${formRoundedClass}`}
+      >
         <textarea
           ref={textareaRef}
           value={message}
@@ -1014,136 +1013,157 @@ Please analyze this error and fix it in the code. Make sure to:
           disabled={isLoading}
         />
 
-        <div className="absolute bottom-1 left-0 right-0 flex items-center justify-between p-1 bg-[#e7e7e700] rounded-[19px]">
+        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between p-1 bg-[#e7e7e700] rounded-[19px]">
           {isListening ? (
             <div className="flex-1 relative h-10 mr-2 p-[-14px]">
               <canvas ref={canvasRef} className="absolute inset-0 w-full h-full bg-gray-100 rounded" />
             </div>
           ) : (
-            <div className="flex items-center relative" ref={menuRef}>
-              <DropdownMenu open={showMenu} onOpenChange={(open) => { setShowMenu(open); if (!open) setMenuMode('main'); }}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    className="h-7 w-7 p-1.5 cursor-pointer text-sm rounded-md hover:bg-[#e7e7e7] text-black ml-1"
-                    title="More options"
-                    disabled={isLoading}
-                    variant="ghost"
-                    size="sm"
+            <div className="flex items-center">
+              <div className="relative" ref={dropdownRef}>
+                <DropdownMenu open={showMenu} onOpenChange={(open) => { setShowMenu(open); if (!open) setMenuMode('main'); }}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      className="h-7 w-7 p-1.5 cursor-pointer text-sm rounded-md hover:bg-[#e7e7e7] text-black ml-1"
+                      title="More options"
+                      disabled={isLoading}
+                      variant="ghost"
+                      size="sm"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    side="bottom"
+                    align="start"
+                    className="w-[105%] mt-[-10px]"
                   >
-                    <MoreHorizontal className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  side="bottom"
-                  align="start"
-                  className="w-[105%] mt-[-10px]"
-                >
-                  {menuMode === 'main' ? (
-                    <>
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          fileInputRef.current?.click()
-                          setShowMenu(false)
-                        }}
-                        disabled={isLoading}
-                        className="w-full"
-                      >
-                        <Link1Icon className="h-4 w-4" />
-                        Attach images & files
-                      </DropdownMenuItem>
-                      
-                      <DropdownMenuItem
-                        onSelect={() => setMenuMode('design')}
-                        className="w-full"
-                      >
-                        <Palette className="h-4 w-4" />
-                        System Design
-                      </DropdownMenuItem>
-                      
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          handleImprovePrompt()
-                          setShowMenu(false)
-                        }}
-                        disabled={isImproving || !message.trim() || isLoading}
-                        className="w-full"
-                      >
-                        {!isImproving ? (
-                          <StarsIcon className="h-4 w-4" />
-                        ) : (
-                          <Loader className="h-4 w-4 animate-spin" />
-                        )}
-                        Enhance Prompt
-                      </DropdownMenuItem>
-                    </>
-                  ) : (
-                    <>
-                      <DropdownMenuItem
-                        onSelect={() => setMenuMode('main')}
-                        className="w-full"
-                      >
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Back
-                      </DropdownMenuItem>
-
-                      {designSystems.map((system) => (
+                    {menuMode === 'main' ? (
+                      <>
                         <DropdownMenuItem
-                          key={system.name}
                           onSelect={() => {
-                            setSelectedDesign(system.name)
-                            setDesignConfig(designPresets[system.name])
+                            fileInputRef.current?.click()
+                            setShowMenu(false)
+                          }}
+                          disabled={isLoading}
+                          className="w-full"
+                        >
+                          <Link1Icon className="h-4 w-4" />
+                          Attach images & files
+                        </DropdownMenuItem>
+
+                        <DropdownMenuItem
+                          onSelect={() => setMenuMode('design')}
+                          className="w-full"
+                        >
+                          <Palette className="h-4 w-4" />
+                          System Design
+                        </DropdownMenuItem>
+
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            handleImprovePrompt()
+                            setShowMenu(false)
+                          }}
+                          disabled={isImproving || !message.trim() || isLoading}
+                          className="w-full"
+                        >
+                          {!isImproving ? (
+                            <StarsIcon className="h-4 w-4" />
+                          ) : (
+                            <Loader className="h-4 w-4 animate-spin" />
+                          )}
+                          Enhance Prompt
+                        </DropdownMenuItem>
+                      </>
+                    ) : (
+                      <>
+                        <DropdownMenuItem
+                          onSelect={() => setMenuMode('main')}
+                          className="w-full"
+                        >
+                          <ArrowLeft className="h-4 w-4 mr-2" />
+                          Back
+                        </DropdownMenuItem>
+
+                        {designSystems.map((system) => (
+                          <DropdownMenuItem
+                            key={system.name}
+                            onSelect={() => {
+                              setSelectedDesign(system.name)
+                              setDesignConfig(designPresets[system.name])
+                              setShowMenu(false)
+                            }}
+                            className="w-full"
+                          >
+                            <div className={`h-4 w-4 rounded mr-2 ${system.previewColor}`} />
+                            {system.name}
+                          </DropdownMenuItem>
+                        ))}
+
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setSelectedDesign('Custom')
+                            setShowDesignModal(true)
                             setShowMenu(false)
                           }}
                           className="w-full"
                         >
-                          <div className={`h-4 w-4 rounded mr-2 ${system.previewColor}`} />
-                          {system.name}
+                          <Plus className="h-4 w-4" />
+                          New Design System
                         </DropdownMenuItem>
-                      ))}
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
 
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          setSelectedDesign('Custom')
-                          setShowDesignModal(true)
-                          setShowMenu(false)
-                        }}
-                        className="w-full"
-                      >
-                        <Plus className="h-4 w-4" />
-                        New Design System
-                      </DropdownMenuItem>
-                    </>
-                  )}
+             <div className="h-5 w-px bg-gray-300 mx-2" />
+
+              <div className="flex items-center relative" ref={menuRef}>
+              <DropdownMenu open={showModelDropdown} onOpenChange={setShowModelDropdown}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="flex items-center cursor-pointer gap-2 px-3 py-1.5 h-7 rounded-md text-sm font-medium hover:bg-[#e7e7e7] text-black"
+                    disabled={isLoading}
+                  >
+                    <img src={currentModel.iconUrl} alt="" className="w-4 h-4" />
+                    <span>{currentModel.label}</span>
+                    {currentModel.isPremium && !hasSubscription && <Crown className="w-4 h-4 text-amber-500 ml-1" />}
+                    <ChevronDown className="w-4 h-4 ml-1" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-64">
+                  {MODEL_OPTIONS.map((model) => (
+                    <DropdownMenuItem
+                      key={model.id}
+                      onSelect={() => handleModelSelect(model.id)}
+                      className="flex items-center gap-3 cursor-pointer"
+                    >
+                      <img src={model.iconUrl} alt={model.label} className="w-4 h-4 rounded" />
+                      <span className="flex-1">{model.label}</span>
+                      {model.isPremium && !hasSubscription && (
+                        <Crown className="w-4 h-4 text-amber-500" />
+                      )}
+                      {selectedModel === model.id && <span className="text-xs text-muted-foreground">✓</span>}
+                    </DropdownMenuItem>
+                  ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-              {/* {designConfig && (
-                <>
-                  <div className="h-4 w-px bg-gray-300 mx-2" />
+                {connected && (
                   <Button
                     type="button"
-                    className="h-7 w-7 p-0 rounded-md"
-                    style={{ backgroundColor: designConfig.primaryColor }}
-                    onClick={() => {
-                      setShowMenu(true)
-                      setMenuMode('design')
-                    }}
                     variant="ghost"
                     size="sm"
-                  />
-                </>
-              )} */}
-              {connected && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={onCloseIdeas}
-                  className="px-2 py-1 text-sm text-black/75 hover:text-black hover:bg-[#e4e4e48c] h-auto ml-1"
-                >
-                  Close
-                </Button>
-              )}
+                    onClick={onCloseIdeas}
+                    className="px-2 py-1 text-sm text-black/75 hover:text-black hover:bg-[#e4e4e48c] h-auto ml-1"
+                  >
+                    Close
+                  </Button>
+                )}
+              </div>
             </div>
           )}
           <input
@@ -1184,41 +1204,27 @@ Please analyze this error and fix it in the code. Make sure to:
                 <Mic className="w-4 h-4" />
               </Button>
             )}
-            {showUpgradeButton ? (
-              <Link href={'/pricing'}>
-                <Button
-                  type="button"
-                  size="icon"
-                  className="h-7 w-20 p-1.5 bg-[#e4e4e4] hover:bg-[#e7e7e7] text-black"
-                  disabled={isLoading}
-                >
-                  Upgrade
-                </Button>
-              </Link>
-            ) : (
-              <Button
-                type={isListening ? "button" : "submit"}
-                onClick={isListening ? stopVoiceInput : undefined}
-                size="icon"
-                className={`h-7 w-7 p-1.5 rounded-md mr-1 ${isListening ? "bg-red-500 hover:bg-red-600" : "bg-[rgba(40,40,40,0.65)] dark:bg-[#c1603cdc]"}`}
-                disabled={
-                  isLoading || (!isListening && ((!message.trim() && uploadedFiles.length === 0) || !isAuthenticated))
-                }
-              >
-                {isLoading ? (
-                  <Loader className="w-4 h-4 animate-spin text-white" />
-                ) : isListening ? (
-                  <Circle className="w-4 h-4 text-white" />
-                ) : (
-                  <img width={16} height={16} src="/mouse-cursor.png" alt="" />
-                )}
-              </Button>
-            )}
+            <Button
+              type={isListening ? "button" : "submit"}
+              onClick={isListening ? stopVoiceInput : undefined}
+              size="icon"
+              className={`h-7 w-7 p-1.5 rounded-md mr-1 ${isListening ? "bg-red-500 hover:bg-red-600" : "bg-[rgba(40,40,40,0.65)] dark:bg-[#c1603cdc]"}`}
+              disabled={
+                isLoading || (!isListening && ((!message.trim() && uploadedFiles.length === 0) || !isAuthenticated))
+              }
+            >
+              {isLoading ? (
+                <Loader className="w-4 h-4 animate-spin text-white" />
+              ) : isListening ? (
+                <Circle className="w-4 h-4 text-white" />
+              ) : (
+                <img width={16} height={16} src="/mouse-cursor.png" alt="" />
+              )}
+            </Button>
           </div>
         </div>
       </form>
 
-      <PricingModal open={showPricingModal} onClose={() => setShowPricingModal(false)} onSuccess={refetchCredits} />
 
       {selectedFile && (
         <FileModal
@@ -1322,6 +1328,39 @@ Please analyze this error and fix it in the code. Make sure to:
           >
             Save Changes
           </Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPremiumAlert} onOpenChange={setShowPremiumAlert}>
+        <DialogContent className="sm:max-w-md">
+          <div className="flex flex-col items-center text-center gap-4 py-4">
+            <div className="flex items-center justify-center w-16 h-16 bg-amber-100 rounded-full">
+              <Crown className="w-8 h-8 text-amber-600" />
+            </div>
+            <div>
+              <DialogTitle className="text-2xl font-bold mb-2">Premium Model</DialogTitle>
+              <p className="text-gray-600">
+                This model requires a premium subscription. Upgrade now to access advanced AI models with enhanced capabilities.
+              </p>
+            </div>
+            <div className="flex gap-3 w-full mt-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowPremiumAlert(false)}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Link href="/pricing" className="flex-1">
+                <Button
+                  onClick={() => setShowPremiumAlert(false)}
+                  className="flex-1 w-full bg-amber-600 hover:bg-amber-700 text-white"
+                >
+                  Upgrade to Premium
+                </Button>
+              </Link>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

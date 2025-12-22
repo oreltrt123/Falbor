@@ -492,13 +492,13 @@ sys.stdout = StdoutRedirect(lambda text: js.term_write(text))
 
   return (
     <div className="h-full flex flex-col border border-[#d6d6d6] rounded-md bg-[#ffffff] relative overflow-hidden">
-      <button
+      {/* <button
         onClick={onClose}
         className="absolute top-2 right-2 z-10 p-1 bg-white/80 hover:bg-gray-100 rounded transition-colors"
         aria-label="Close preview"
       >
         <X className="w-4 h-4" />
-      </button>
+      </button> */}
 
       {isCodeGenerating && (
         <div className="absolute inset-0 bg-white z-50 flex items-center justify-center">

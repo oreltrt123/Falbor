@@ -977,7 +977,7 @@ function AIMessageContent({
           onOpenChange={() => onToggleSection('codeBlocks')}
         >
           <CollapsibleTrigger asChild>
-            <Button
+            {/* <Button
               variant="ghost"
               size="sm"
               className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
@@ -1019,7 +1019,7 @@ function AIMessageContent({
                 />
               </div>
               <span>Commentary</span>
-            </Button>
+            </Button> */}
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2">
               <div className="p-1 ">

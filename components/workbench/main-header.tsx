@@ -1,13 +1,11 @@
-// File: components/MainHeader.tsx
-// Changes: Replaced the custom /api/auth/token fetch with useAuth().getToken() for consistency with other components.
-// This should resolve the "Unauthorized" error by ensuring a valid Clerk JWT is sent in the Authorization header.
 "use client"
 
-import { Globe, Code2, Download, RefreshCw, Rocket, Settings, Terminal, Database } from "lucide-react"
+import { Globe, Code2, Download, Rocket, Settings, Database } from "lucide-react"
 import { TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useAuth } from "@clerk/nextjs"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip"
 
 interface MainHeaderProps {
   showDownloadMenu: boolean
@@ -17,11 +15,10 @@ interface MainHeaderProps {
   projectId: string
 }
 
-export function MainHeader({
-  handleDownload,
-  refreshFilesAndPreview,
-  projectId,
-}: MainHeaderProps) {
+// 🔑 Toggle this when the database section is ready
+const DATABASE_ENABLED = false
+
+export function MainHeader({ handleDownload, projectId }: MainHeaderProps) {
   const [isDeploying, setIsDeploying] = useState(false)
   const [, setDeployedUrl] = useState<string | null>(null)
   const { getToken } = useAuth()
@@ -47,6 +44,7 @@ export function MainHeader({
       const data = await response.json()
       setDeployedUrl(data.deploymentUrl)
 
+      console.log("[v0] Deployment successful:", data.deploymentUrl)
       window.open(data.deploymentUrl, "_blank", "noopener,noreferrer")
     } catch (error) {
       console.error("[v0] Deployment error:", error)
@@ -60,19 +58,40 @@ export function MainHeader({
     <div className="p-3 flex items-center justify-between">
       {/* Left side - Tab Navigation */}
       <div className="flex items-center gap-2">
-        <TabsList className="w-[100%] justify-start">
+        <TabsList className="w-full justify-start">
           <TabsTrigger value="preview" className="gap-2">
             <Globe className="w-4 h-4 text-black" />
           </TabsTrigger>
+
           <TabsTrigger value="code" className="gap-2">
             <Code2 className="w-4 h-4 text-black" />
           </TabsTrigger>
+
           <TabsTrigger value="settings" className="gap-2">
             <Settings className="w-4 h-4 text-black" />
           </TabsTrigger>
-          <TabsTrigger value="database" className="gap-2">
-            <Database className="w-4 h-4 text-black" />
-          </TabsTrigger>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <TabsTrigger
+                    value="database"
+                    disabled={!DATABASE_ENABLED}
+                    className={cn("gap-2", !DATABASE_ENABLED && "pointer-events-none opacity-50")}
+                  >
+                    <Database className="w-4 h-4 text-black" />
+                  </TabsTrigger>
+                </div>
+              </TooltipTrigger>
+
+              {!DATABASE_ENABLED && (
+                <TooltipContent>
+                  <p>Coming Soon</p>
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
         </TabsList>
       </div>
 
@@ -90,7 +109,7 @@ export function MainHeader({
           <Rocket className="w-4 h-4" />
           {isDeploying ? "Deploying..." : "Deploy"}
         </button>
-        {/* Download button */}
+
         <button
           id="download-button"
           onClick={handleDownload}
