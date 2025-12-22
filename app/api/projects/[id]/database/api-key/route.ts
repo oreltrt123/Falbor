@@ -1,5 +1,5 @@
 // File: app/api/projects/[id]/database/api-key/route.ts
-import { NextResponse } from "next/server"
+import { NextResponse, NextRequest } from "next/server"  // Combined import
 import { getOrCreateApiKey } from "@/config/db"
 
 export async function GET(
