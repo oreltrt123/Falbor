@@ -1,3 +1,4 @@
+// api/projects/[id]/files/route.ts
 import { type NextRequest, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/config/db"

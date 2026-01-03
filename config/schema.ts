@@ -1,9 +1,6 @@
-// File: config/schema.ts
-// Changes: Added 'subdomain' column to deployments table for easier querying in the deployment serving route.
 import { pgTable, text, timestamp, uuid, jsonb, boolean, integer, serial } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { check } from "drizzle-orm/pg-core"
-import { relations } from "drizzle-orm"
 
 export const projects = pgTable("projects", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -28,6 +25,36 @@ export const projects = pgTable("projects", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   isAutomated: boolean("is_automated").default(false).notNull(),
+})
+
+export const projectTasks = pgTable("project_tasks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  status: text("status").notNull().default("pending"),
+  orderIndex: integer("order_index").notNull().default(0),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
+export const taskAutomation = pgTable("task_automation", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id")
+    .notNull()
+    .unique()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  isActive: boolean("is_active").default(false).notNull(),
+  intervalMinutes: integer("interval_minutes").default(10).notNull(),
+  lastRunAt: timestamp("last_run_at"),
+  nextTaskId: uuid("next_task_id").references(() => projectTasks.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
 
 export const bot_deployments = pgTable("bot_deployments", {
@@ -237,7 +264,7 @@ export const projectDatabases = pgTable("project_databases", {
     .notNull()
     .unique()
     .references(() => projects.id, { onDelete: "cascade" }),
-  apiKey: text("api_key"),
+  apiKey: text("api_key").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
@@ -252,14 +279,18 @@ export const projectUsers = pgTable(
     email: text("email").notNull(),
     name: text("name"),
     role: text("role").default("user").notNull(),
-    passwordHash: text("password_hash"), // nullable, matches your frontend/API
+    passwordHash: text("password_hash").notNull(),
+    metadata: jsonb("metadata").$type<{
+      avatar?: string
+      bio?: string
+      settings?: Record<string, any>
+    } | null>(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => ({
-    // Prevent duplicate emails per project database
     uniqueEmailPerProject: sql`UNIQUE(${table.projectDatabaseId}, ${table.email})`,
-  })
+  }),
 )
 
 export const projectTables = pgTable("project_tables", {
@@ -269,9 +300,18 @@ export const projectTables = pgTable("project_tables", {
     .references(() => projectDatabases.id, { onDelete: "cascade" }),
   tableName: text("table_name").notNull(),
   columns: jsonb("columns")
-    .$type<Array<{ name: string; type: string; nullable?: boolean }>>()
+    .$type<Array<{ name: string; type: string; nullable?: boolean; default?: any }>>()
     .notNull()
     .default(sql`'[]'::jsonb`),
+  queryFile: jsonb("query_file").$type<{
+    fileName: string
+    operations: Array<{
+      name: string
+      type: "select" | "insert" | "update" | "delete"
+      query: string
+      params?: Record<string, string>
+    }>
+  } | null>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
@@ -297,12 +337,22 @@ export const projectDatabaseLogs = pgTable("project_database_logs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
 
+export const projectQueryFiles = pgTable("project_query_files", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectDatabaseId: uuid("project_database_id")
+    .notNull()
+    .references(() => projectDatabases.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  content: text("content").notNull(),
+  tableId: uuid("table_id").references(() => projectTables.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
 // ====================
 // TYPE INFERENCES
 // ====================
 
-export type Project = typeof projects.$inferSelect
-export type NewProject = typeof projects.$inferInsert
 export type Favorite = typeof favorites.$inferSelect
 export type NewFavorite = typeof favorites.$inferInsert
 export type Message = typeof messages.$inferSelect
@@ -327,6 +377,8 @@ export type UserModelConfig = typeof userModelConfigs.$inferSelect
 export type NewUserModelConfig = typeof userModelConfigs.$inferInsert
 export type BotDeployment = typeof bot_deployments.$inferSelect
 export type NewBotDeployment = typeof bot_deployments.$inferInsert
+export type Project = typeof projects.$inferSelect
+export type NewProject = typeof projects.$inferInsert
 
 // Database feature types
 export type ProjectDatabase = typeof projectDatabases.$inferSelect
@@ -339,3 +391,5 @@ export type ProjectTableRow = typeof projectTableRows.$inferSelect
 export type NewProjectTableRow = typeof projectTableRows.$inferInsert
 export type ProjectDatabaseLog = typeof projectDatabaseLogs.$inferSelect
 export type NewProjectDatabaseLog = typeof projectDatabaseLogs.$inferInsert
+export type ProjectQueryFile = typeof projectQueryFiles.$inferSelect
+export type NewProjectQueryFile = typeof projectQueryFiles.$inferInsert

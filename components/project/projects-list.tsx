@@ -61,14 +61,14 @@ export async function ProjectsList({ userId }: { userId: string }) {
         <Link key={project.id} href={`/chat/${project.id}`}>
           <Card
             className="transition-colors duration-200 cursor-pointer 
-            shadow-none h-full bg-[#1b1b1b]
-            border border-transparent 
-            hover:border-[#3b3b3fbe] hover:bg-[#1b1b1b]"
+            shadow-none h-full bg-[#ebebeb]
+            border
+            hover:border-[#d3d3d3] hover:bg-[#ebebebcb]"
           >
             <CardContent className="">
               {/* Project title above user info */}
               <div className="mb-3">
-                <span className="block text-white text-sm font-medium truncate">
+                <span className="block text-black text-sm font-medium truncate">
                   {project.title}
                 </span>
               </div>
@@ -80,8 +80,8 @@ export async function ProjectsList({ userId }: { userId: string }) {
                   className="w-5 h-5 rounded-full object-cover"
                 />
                 <div>
-                  <p className="text-xs text-white font-medium">
-                    {user.firstName || "User"} <span className="text-white/70">Updated {new Date(project.updated_at).toLocaleDateString()}</span>
+                  <p className="text-xs text-black font-medium">
+                    {user.firstName || "User"} <span className="text-black/70">Updated {new Date(project.updated_at).toLocaleDateString()}</span>
                   </p>
                 </div>
               </div>

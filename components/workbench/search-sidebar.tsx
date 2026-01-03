@@ -36,11 +36,10 @@ export function SearchSidebar({
   return (
     <div className="flex flex-col h-full">
       <div className="p-2">
-        <input
+        <Input
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search files and code..."
-          className="h-[30px] p-2 w-full bg-[#e4e4e4] placeholder:text-black border-none shadow-none rounded-md text-black text-sm focus:border-none focus:outline-none"
         />
       </div>
 

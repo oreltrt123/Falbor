@@ -5,14 +5,14 @@ import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "re
 import { useRouter } from "next/navigation"
 import { useUser } from "@clerk/nextjs"
 import { Button } from "@/components/ui/button"
-import { AlertCircle, ChartBarDecreasingIcon, Palette, StarsIcon, Crown } from "lucide-react"
+import { AlertCircle, Palette, StarsIcon, Crown } from "lucide-react"
 import { Loader, X, Mic, Plus, Circle, MoreHorizontal, ArrowLeft, ChevronDown } from "lucide-react"
 import type { Message } from "@/config/schema"
 import Link from "next/link"
 import { FileModal } from "@/components/models/FileModal"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator, } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Link1Icon } from "@radix-ui/react-icons"
@@ -56,85 +56,85 @@ type DesignConfig = {
   secondaryColor: string
   backgroundColor: string
   textColor: string
-  buttonStyle: 'rounded' | 'square' | 'pill'
-  borderStyle: 'solid' | 'dashed' | 'none'
+  buttonStyle: "rounded" | "square" | "pill"
+  borderStyle: "solid" | "dashed" | "none"
 }
 
 const designSystems = [
-  { name: 'Base', previewColor: 'bg-black' },
-  { name: 'Mono', previewColor: 'bg-gray-500' },
-  { name: 'Cosmic Night', previewColor: 'bg-purple-900' },
-  { name: 'Soft Pop', previewColor: 'bg-green-500' },
-  { name: 'Neo Brutalism', previewColor: 'bg-yellow-500' },
-  { name: 'Vintage Paper', previewColor: 'bg-amber-300' },
-  { name: 'Modern Minimal', previewColor: 'bg-blue-200' },
-  { name: 'Bubblegum', previewColor: 'bg-pink-400' },
+  { name: "Base", previewColor: "bg-black" },
+  { name: "Mono", previewColor: "bg-gray-500" },
+  { name: "Cosmic Night", previewColor: "bg-purple-900" },
+  { name: "Soft Pop", previewColor: "bg-green-500" },
+  { name: "Neo Brutalism", previewColor: "bg-yellow-500" },
+  { name: "Vintage Paper", previewColor: "bg-amber-300" },
+  { name: "Modern Minimal", previewColor: "bg-blue-200" },
+  { name: "Bubblegum", previewColor: "bg-pink-400" },
 ]
 
 const designPresets: Record<string, DesignConfig> = {
-  'Base': {
-    primaryColor: '#000000',
-    secondaryColor: '#ffffff',
-    backgroundColor: '#ffffff',
-    textColor: '#000000',
-    buttonStyle: 'rounded',
-    borderStyle: 'solid',
+  Base: {
+    primaryColor: "#000000",
+    secondaryColor: "#ffffff",
+    backgroundColor: "#ffffff",
+    textColor: "#000000",
+    buttonStyle: "rounded",
+    borderStyle: "solid",
   },
-  'Mono': {
-    primaryColor: '#333333',
-    secondaryColor: '#666666',
-    backgroundColor: '#f0f0f0',
-    textColor: '#000000',
-    buttonStyle: 'square',
-    borderStyle: 'none',
+  Mono: {
+    primaryColor: "#333333",
+    secondaryColor: "#666666",
+    backgroundColor: "#f0f0f0",
+    textColor: "#000000",
+    buttonStyle: "square",
+    borderStyle: "none",
   },
-  'Cosmic Night': {
-    primaryColor: '#4b0082',
-    secondaryColor: '#ffffff',
-    backgroundColor: '#000000',
-    textColor: '#ffffff',
-    buttonStyle: 'rounded',
-    borderStyle: 'dashed',
+  "Cosmic Night": {
+    primaryColor: "#4b0082",
+    secondaryColor: "#ffffff",
+    backgroundColor: "#000000",
+    textColor: "#ffffff",
+    buttonStyle: "rounded",
+    borderStyle: "dashed",
   },
-  'Soft Pop': {
-    primaryColor: '#00ff00',
-    secondaryColor: '#ff4500',
-    backgroundColor: '#ffffff',
-    textColor: '#000000',
-    buttonStyle: 'pill',
-    borderStyle: 'solid',
+  "Soft Pop": {
+    primaryColor: "#00ff00",
+    secondaryColor: "#ff4500",
+    backgroundColor: "#ffffff",
+    textColor: "#000000",
+    buttonStyle: "pill",
+    borderStyle: "solid",
   },
-  'Neo Brutalism': {
-    primaryColor: '#ffff00',
-    secondaryColor: '#ff0000',
-    backgroundColor: '#ffffff',
-    textColor: '#000000',
-    buttonStyle: 'square',
-    borderStyle: 'solid',
+  "Neo Brutalism": {
+    primaryColor: "#ffff00",
+    secondaryColor: "#ff0000",
+    backgroundColor: "#ffffff",
+    textColor: "#000000",
+    buttonStyle: "square",
+    borderStyle: "solid",
   },
-  'Vintage Paper': {
-    primaryColor: '#8b4513',
-    secondaryColor: '#f4e8d4',
-    backgroundColor: '#f4e8d4',
-    textColor: '#4b2e0b',
-    buttonStyle: 'rounded',
-    borderStyle: 'dashed',
+  "Vintage Paper": {
+    primaryColor: "#8b4513",
+    secondaryColor: "#f4e8d4",
+    backgroundColor: "#f4e8d4",
+    textColor: "#4b2e0b",
+    buttonStyle: "rounded",
+    borderStyle: "dashed",
   },
-  'Modern Minimal': {
-    primaryColor: '#007bff',
-    secondaryColor: '#6c757d',
-    backgroundColor: '#ffffff',
-    textColor: '#212529',
-    buttonStyle: 'square',
-    borderStyle: 'none',
+  "Modern Minimal": {
+    primaryColor: "#007bff",
+    secondaryColor: "#6c757d",
+    backgroundColor: "#ffffff",
+    textColor: "#212529",
+    buttonStyle: "square",
+    borderStyle: "none",
   },
-  'Bubblegum': {
-    primaryColor: '#ff69b4',
-    secondaryColor: '#ffb6c1',
-    backgroundColor: '#fff0f5',
-    textColor: '#c71585',
-    buttonStyle: 'pill',
-    borderStyle: 'solid',
+  Bubblegum: {
+    primaryColor: "#ff69b4",
+    secondaryColor: "#ffb6c1",
+    backgroundColor: "#fff0f5",
+    textColor: "#c71585",
+    buttonStyle: "pill",
+    borderStyle: "solid",
   },
 }
 
@@ -183,12 +183,13 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   const [selectedModel, setSelectedModel] = useState<string>(initialModel)
   const [showModelDropdown, setShowModelDropdown] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
-  const [menuMode, setMenuMode] = useState<'main' | 'design'>('main')
+  const [menuMode, setMenuMode] = useState<"main" | "design">("main")
   const [showDesignModal, setShowDesignModal] = useState(false)
   const [selectedDesign, setSelectedDesign] = useState<string | null>(null)
   const [designConfig, setDesignConfig] = useState<DesignConfig | null>(null)
-  const [tempConfig, setTempConfig] = useState<DesignConfig>(designPresets['Base'])
+  const [tempConfig, setTempConfig] = useState<DesignConfig>(designPresets["Base"])
   const [showPremiumAlert, setShowPremiumAlert] = useState(false)
+  const [showLoginDialog, setShowLoginDialog] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
@@ -204,10 +205,11 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   const animationRef = useRef<number | null>(null)
   const router = useRouter()
   const { user, isLoaded } = useUser()
+  const [isActive, setIsActive] = useState(false)
 
   const draftKey = projectId ? `chat-draft-${projectId}` : "chat-draft-global"
-  const designKey = 'chat-design-config'
-  const modelKey = 'chat-selected-model'
+  const designKey = "chat-design-config"
+  const modelKey = "chat-selected-model"
 
   useEffect(() => {
     const savedDraft = localStorage.getItem(draftKey)
@@ -406,6 +408,10 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
   }
 
   const handleImprovePrompt = async () => {
+    if (!isAuthenticated) {
+      setShowLoginDialog(true)
+      return
+    }
     if (!message.trim() || isImproving) return
     setIsImproving(true)
 
@@ -553,12 +559,12 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
   useEffect(() => {
     if (showDesignModal) {
-      setTempConfig(designConfig ?? designPresets['Base'])
+      setTempConfig(designConfig ?? designPresets["Base"])
     }
   }, [showDesignModal, designConfig])
 
   const handleModelSelect = (modelId: string) => {
-    const model = MODEL_OPTIONS.find(m => m.id === modelId)
+    const model = MODEL_OPTIONS.find((m) => m.id === modelId)
     if (!model) return
 
     const hasSubscription = creditsData?.subscriptionTier !== "none"
@@ -587,7 +593,12 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
 
     if (!message.trim() && uploadedFiles.length === 0 && !designConfig) return
 
-    const selectedModelOption = MODEL_OPTIONS.find(m => m.id === selectedModel)
+    if (!isAuthenticated) {
+      setShowLoginDialog(true)
+      return
+    }
+
+    const selectedModelOption = MODEL_OPTIONS.find((m) => m.id === selectedModel)
     const hasSubscription = creditsData?.subscriptionTier !== "none"
     if (selectedModelOption?.isPremium && !hasSubscription) {
       setShowPremiumAlert(true)
@@ -608,7 +619,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     }
 
     if (designConfig) {
-      userMessage += `\n\n## Design System: ${selectedDesign || 'Custom'}\n${JSON.stringify(designConfig, null, 2)}`
+      userMessage += `\n\n## Design System: ${selectedDesign || "Custom"}\n${JSON.stringify(designConfig, null, 2)}`
     }
 
     const filesToSend = []
@@ -825,7 +836,6 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
     }
   }
 
-
   const handleFixError = () => {
     if (!previewError || !projectId) return
 
@@ -877,33 +887,10 @@ Please analyze this error and fix it in the code. Make sure to:
     [draftKey],
   )
 
-  if (!isLoaded || !isAuthenticated) {
-    return (
-      <div className="space-y-2">
-        <div className="relative bg-[#ecececdc] border border-[#dbd9d9b2] rounded-md overflow-hidden">
-          <textarea
-            placeholder={placeholder}
-            className="w-full min-h-[80px] max-h-[150px] resize-none bg-transparent text-white placeholder:text-muted-foreground px-3 pt-3 pb-12 text-base outline-none overflow-y-auto field-sizing-content disabled:cursor-not-allowed disabled:opacity-50"
-            disabled
-          />
-          <div className="absolute top-0 right-0 flex items-center justify-between px-3 py-2 bg-[#ececec00]">
-            <div className="flex gap-1.5">
-              <Link href={"/sign-in"}>
-                <button className="text-sm font-medium cursor-pointer w-[70px] bg-[#ffffff] p-1 rounded-md text-[#000000]">
-                  Sign In
-                </button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const formRoundedClass = connected ? "rounded-t-[13px]" : "rounded-md"
+  const formRoundedClass = connected ? "rounded-t-[11px]" : "rounded-sm"
   const formBorderClass = connected ? "border-b-0" : "border-3"
 
-  const currentModel = MODEL_OPTIONS.find(m => m.id === selectedModel) || MODEL_OPTIONS[0]
+  const currentModel = MODEL_OPTIONS.find((m) => m.id === selectedModel) || MODEL_OPTIONS[0]
   const hasSubscription = creditsData?.subscriptionTier !== "none"
 
   return (
@@ -992,23 +979,75 @@ Please analyze this error and fix it in the code. Make sure to:
 
       <form
         onSubmit={handleSubmit}
-        className={`relative bg-[#ecececdc] border border-[#dbd9d9b2] p-1 ${formRoundedClass}`}
+        className={`relative p-1 shadow-sm ${formRoundedClass}`}
+        style={{
+          backgroundColor: "#ffffff",
+          borderRadius: "6px",
+          border: "1px solid #dbd9d9b2",
+          transition: "background-image 200ms ease",
+
+          backgroundImage: `
+      linear-gradient(#ffffff, #ffffff),
+
+      /* TOP border (colored section only) */
+      linear-gradient(
+        to right,
+        ${isActive ? "#f3581f" : "rgba(193,95,60,0.35)"} 0%,
+        rgba(193, 95, 60, ${isActive ? "1" : "0.45"}) 18%,
+        rgba(193, 95, 60, ${isActive ? "0.85" : "0.25"}) 35%,
+        rgba(219, 217, 217, 0.7) 50%,
+        #dbd9d9b2 60%
+      ),
+
+      /* LEFT border (colored section only) */
+      linear-gradient(
+        to bottom,
+        ${isActive ? "#c15f3c" : "rgba(193,95,60,0.35)"} 0%,
+        rgba(193, 95, 60, ${isActive ? "1" : "0.45"}) 22%,
+        rgba(193, 95, 60, ${isActive ? "0.85" : "0.25"}) 40%,
+        rgba(219, 217, 217, 0.7) 55%,
+        #dbd9d9b2 65%
+      )
+    `,
+          backgroundOrigin: "padding-box, border-box, border-box",
+          backgroundClip: "padding-box, border-box, border-box",
+        }}
       >
         <textarea
           ref={textareaRef}
           value={message}
           onChange={(e) => {
             const newMessage = e.target.value
+
             setMessage(newMessage)
             localStorage.setItem(draftKey, newMessage)
+
+            // Activate ONLY when user actually types content
+            if (newMessage.trim().length > 0) {
+              setIsActive(true)
+            }
           }}
           onKeyDown={handleKeyDown}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
+          onFocus={() => {
+            setIsFocused(true)
+
+            // Keep active only if there's content
+            if (message.trim().length > 0) {
+              setIsActive(true)
+            }
+          }}
+          onBlur={() => {
+            setIsFocused(false)
+
+            // Remove active state ONLY if empty
+            if (message.trim().length === 0) {
+              setIsActive(false)
+            }
+          }}
           placeholder={isDiscussMode ? "Discuss anything..." : placeholder}
-          className="w-full min-h-[100px] max-h-[150px] resize-none bg-transparent text-black placeholder:text-muted-foreground
-                     px-2 pt-2 pb-10 text-base outline-none overflow-y-auto field-sizing-content chat-messages-scroll font-light
-                     disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full min-h-[120px] max-h-[150px] resize-none bg-transparent text-black placeholder:text-muted-foreground
+             px-2 pt-2 pb-10 text-base outline-none overflow-y-auto field-sizing-content chat-messages-scroll font-light
+             disabled:cursor-not-allowed disabled:opacity-50"
           style={{ scrollbarWidth: "thin" }}
           disabled={isLoading}
         />
@@ -1021,7 +1060,13 @@ Please analyze this error and fix it in the code. Make sure to:
           ) : (
             <div className="flex items-center">
               <div className="relative" ref={dropdownRef}>
-                <DropdownMenu open={showMenu} onOpenChange={(open) => { setShowMenu(open); if (!open) setMenuMode('main'); }}>
+                <DropdownMenu
+                  open={showMenu}
+                  onOpenChange={(open) => {
+                    setShowMenu(open)
+                    if (!open) setMenuMode("main")
+                  }}
+                >
                   <DropdownMenuTrigger asChild>
                     <Button
                       type="button"
@@ -1034,12 +1079,8 @@ Please analyze this error and fix it in the code. Make sure to:
                       <MoreHorizontal className="w-4 h-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    side="bottom"
-                    align="start"
-                    className="w-[105%] mt-[-10px]"
-                  >
-                    {menuMode === 'main' ? (
+                  <DropdownMenuContent side="bottom" align="start" className="w-[105%] mt-[-10px]">
+                    {menuMode === "main" ? (
                       <>
                         <DropdownMenuItem
                           onSelect={() => {
@@ -1053,10 +1094,7 @@ Please analyze this error and fix it in the code. Make sure to:
                           Attach images & files
                         </DropdownMenuItem>
 
-                        <DropdownMenuItem
-                          onSelect={() => setMenuMode('design')}
-                          className="w-full"
-                        >
+                        <DropdownMenuItem onSelect={() => setMenuMode("design")} className="w-full">
                           <Palette className="h-4 w-4" />
                           System Design
                         </DropdownMenuItem>
@@ -1079,10 +1117,7 @@ Please analyze this error and fix it in the code. Make sure to:
                       </>
                     ) : (
                       <>
-                        <DropdownMenuItem
-                          onSelect={() => setMenuMode('main')}
-                          className="w-full"
-                        >
+                        <DropdownMenuItem onSelect={() => setMenuMode("main")} className="w-full">
                           <ArrowLeft className="h-4 w-4 mr-2" />
                           Back
                         </DropdownMenuItem>
@@ -1104,7 +1139,7 @@ Please analyze this error and fix it in the code. Make sure to:
 
                         <DropdownMenuItem
                           onSelect={() => {
-                            setSelectedDesign('Custom')
+                            setSelectedDesign("Custom")
                             setShowDesignModal(true)
                             setShowMenu(false)
                           }}
@@ -1119,39 +1154,37 @@ Please analyze this error and fix it in the code. Make sure to:
                 </DropdownMenu>
               </div>
 
-             <div className="h-5 w-px bg-gray-300 mx-2" />
+              <div className="h-5 w-px bg-gray-300 mx-2" />
 
               <div className="flex items-center relative" ref={menuRef}>
-              <DropdownMenu open={showModelDropdown} onOpenChange={setShowModelDropdown}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="flex items-center cursor-pointer gap-2 px-3 py-1.5 h-7 rounded-md text-sm font-medium hover:bg-[#e7e7e7] text-black"
-                    disabled={isLoading}
-                  >
-                    <img src={currentModel.iconUrl} alt="" className="w-4 h-4" />
-                    <span>{currentModel.label}</span>
-                    {currentModel.isPremium && !hasSubscription && <Crown className="w-4 h-4 text-amber-500 ml-1" />}
-                    <ChevronDown className="w-4 h-4 ml-1" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-64">
-                  {MODEL_OPTIONS.map((model) => (
-                    <DropdownMenuItem
-                      key={model.id}
-                      onSelect={() => handleModelSelect(model.id)}
-                      className="flex items-center gap-3 cursor-pointer"
+                <DropdownMenu open={showModelDropdown} onOpenChange={setShowModelDropdown}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="flex items-center cursor-pointer gap-2 px-3 py-1.5 h-7 rounded-md text-sm font-medium hover:bg-[#e7e7e7] text-black"
+                      disabled={isLoading}
                     >
-                      <img src={model.iconUrl} alt={model.label} className="w-4 h-4 rounded" />
-                      <span className="flex-1">{model.label}</span>
-                      {model.isPremium && !hasSubscription && (
-                        <Crown className="w-4 h-4 text-amber-500" />
-                      )}
-                      {selectedModel === model.id && <span className="text-xs text-muted-foreground">✓</span>}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                      <img src={currentModel.iconUrl} alt="" className="w-4 h-4" />
+                      <span>{currentModel.label}</span>
+                      {currentModel.isPremium && !hasSubscription && <Crown className="w-4 h-4 text-amber-500 ml-1" />}
+                      <ChevronDown className="w-4 h-4 ml-1" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-64">
+                    {MODEL_OPTIONS.map((model) => (
+                      <DropdownMenuItem
+                        key={model.id}
+                        onSelect={() => handleModelSelect(model.id)}
+                        className="flex items-center gap-3 cursor-pointer"
+                      >
+                        <img src={model.iconUrl} alt={model.label} className="w-4 h-4 rounded" />
+                        <span className="flex-1">{model.label}</span>
+                        {model.isPremium && !hasSubscription && <Crown className="w-4 h-4 text-amber-500" />}
+                        {selectedModel === model.id && <span className="text-xs text-muted-foreground">✓</span>}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 {connected && (
                   <Button
                     type="button"
@@ -1208,7 +1241,7 @@ Please analyze this error and fix it in the code. Make sure to:
               type={isListening ? "button" : "submit"}
               onClick={isListening ? stopVoiceInput : undefined}
               size="icon"
-              className={`h-7 w-7 p-1.5 rounded-md mr-1 ${isListening ? "bg-red-500 hover:bg-red-600" : "bg-[rgba(40,40,40,0.65)] dark:bg-[#c1603cdc]"}`}
+              className={`h-7 w-7 p-1.5 rounded-md mr-1 ${isListening ? "bg-red-500 hover:bg-red-600" : "bg-[#c1603cdc] dark:bg-[#c1603cdc]"}`}
               disabled={
                 isLoading || (!isListening && ((!message.trim() && uploadedFiles.length === 0) || !isAuthenticated))
               }
@@ -1224,7 +1257,6 @@ Please analyze this error and fix it in the code. Make sure to:
           </div>
         </div>
       </form>
-
 
       {selectedFile && (
         <FileModal
@@ -1293,7 +1325,9 @@ Please analyze this error and fix it in the code. Make sure to:
               </Label>
               <Select
                 value={tempConfig.buttonStyle}
-                onValueChange={(value) => setTempConfig({ ...tempConfig, buttonStyle: value as 'rounded' | 'square' | 'pill' })}
+                onValueChange={(value) =>
+                  setTempConfig({ ...tempConfig, buttonStyle: value as "rounded" | "square" | "pill" })
+                }
               >
                 <SelectTrigger className="col-span-3" />
                 <SelectContent>
@@ -1309,7 +1343,9 @@ Please analyze this error and fix it in the code. Make sure to:
               </Label>
               <Select
                 value={tempConfig.borderStyle}
-                onValueChange={(value) => setTempConfig({ ...tempConfig, borderStyle: value as 'solid' | 'dashed' | 'none' })}
+                onValueChange={(value) =>
+                  setTempConfig({ ...tempConfig, borderStyle: value as "solid" | "dashed" | "none" })
+                }
               >
                 <SelectTrigger className="col-span-3" />
                 <SelectContent>
@@ -1340,15 +1376,12 @@ Please analyze this error and fix it in the code. Make sure to:
             <div>
               <DialogTitle className="text-2xl font-bold mb-2">Premium Model</DialogTitle>
               <p className="text-gray-600">
-                This model requires a premium subscription. Upgrade now to access advanced AI models with enhanced capabilities.
+                This model requires a premium subscription. Upgrade now to access advanced AI models with enhanced
+                capabilities.
               </p>
             </div>
             <div className="flex gap-3 w-full mt-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowPremiumAlert(false)}
-                className="flex-1"
-              >
+              <Button variant="outline" onClick={() => setShowPremiumAlert(false)} className="flex-1">
                 Cancel
               </Button>
               <Link href="/pricing" className="flex-1">
@@ -1357,6 +1390,33 @@ Please analyze this error and fix it in the code. Make sure to:
                   className="flex-1 w-full bg-amber-600 hover:bg-amber-700 text-white"
                 >
                   Upgrade to Premium
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showLoginDialog} onOpenChange={setShowLoginDialog}>
+        <DialogContent className="sm:max-w-md">
+          <div className="flex flex-col items-center text-center gap-4 py-4">
+            <div className="flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full">
+              <AlertCircle className="w-8 h-8 text-blue-600" />
+            </div>
+            <div>
+              <DialogTitle className="text-2xl font-bold mb-2">Sign In Required</DialogTitle>
+              <p className="text-gray-600">Please sign in to send your message and access full features.</p>
+            </div>
+            <div className="flex gap-3 w-full mt-2">
+              <Button variant="outline" onClick={() => setShowLoginDialog(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Link href="/sign-in" className="flex-1">
+                <Button
+                  onClick={() => setShowLoginDialog(false)}
+                  className="flex-1 w-full bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Sign In
                 </Button>
               </Link>
             </div>

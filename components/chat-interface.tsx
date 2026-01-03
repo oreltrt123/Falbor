@@ -1,24 +1,52 @@
 "use client"
-
 import type React from "react"
-
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { MessageList } from "@/components/message/message-list"
 import { ChatInput } from "@/components/layout/chat"
 import { CodePreview } from "@/components/workbench/code-preview"
 import type { Project, Message as SchemaMessage } from "@/config/schema"
-import { Navbar } from "@/components/chat/navbar"
+import { Navbar } from "./chat/navbar"
+import { useAuth } from "@clerk/nextjs"
+import { usePathname, useSearchParams, useRouter } from 'next/navigation'
 
 interface StrictMessage extends Omit<SchemaMessage, "role"> {
   role: "user" | "assistant"
 }
-
 interface ChatInterfaceProps {
   project: Project
   initialMessages: SchemaMessage[]
   initialUserMessage?: string
 }
-
+function isCodeGenerationRequest(content: string): boolean {
+  const lowerContent = content.toLowerCase()
+  const codeKeywords = [
+    "build",
+    "create",
+    "make",
+    "develop",
+    "generate",
+    "code",
+    "app",
+    "website",
+    "component",
+    "page",
+    "design",
+    "implement",
+    "add",
+    "update",
+    "fix",
+    "change",
+    "modify",
+    "refactor",
+    "style",
+    "layout",
+    "form",
+    "button",
+    "navbar",
+    "footer",
+  ]
+  return codeKeywords.some((keyword) => lowerContent.includes(keyword))
+}
 export function ChatInterface({ project, initialMessages, initialUserMessage }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<StrictMessage[]>([])
   const [windowWidth, setWindowWidth] = useState(0)
@@ -30,19 +58,40 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
     file?: string
     line?: string
   } | null>(null)
-  const [isPreviewOpen, setIsPreviewOpen] = useState(true)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [hasProjectFiles, setHasProjectFiles] = useState(false)
   const hasAutoTriggered = useRef(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
-
-  // Width of the left panel (chat)
   const [leftWidth, setLeftWidth] = useState(500)
   const isResizing = useRef(false)
   const startX = useRef(0)
   const startWidth = useRef(0)
-
+  const { getToken } = useAuth()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const isNarrow = isPreviewOpen && leftWidth < windowWidth * 0.4
-
+  useEffect(() => {
+    async function checkProjectFiles() {
+      try {
+        const res = await fetch(`/api/projects/${project.id}/files`)
+        if (res.ok) {
+          const data = await res.json()
+          const hasFiles = data.files && data.files.length > 0
+          setHasProjectFiles(hasFiles)
+          if (hasFiles) {
+            setIsPreviewOpen(true)
+          }
+        }
+      } catch (err) {
+        console.error("[v0] Failed to check project files:", err)
+      }
+    }
+    if (project.id) {
+      checkProjectFiles()
+    }
+  }, [project.id])
   useEffect(() => {
     const handleResize = () => {
       setWindowWidth(window.innerWidth)
@@ -51,7 +100,6 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
     window.addEventListener("resize", handleResize)
     return () => window.removeEventListener("resize", handleResize)
   }, [])
-
   useEffect(() => {
     const validMessages = initialMessages.filter((msg): msg is SchemaMessage & { role: "user" | "assistant" } => {
       if (!msg || typeof msg !== "object") return false
@@ -64,37 +112,54 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
     }))
     setMessages(strictMessages)
   }, [initialMessages])
-
   useEffect(() => {
     if (initialUserMessage && !hasAutoTriggered.current && project.id) {
-      hasAutoTriggered.current = true
-      const userMessage: StrictMessage = {
-        id: `initial-user-${Date.now()}`,
-        projectId: project.id,
-        role: "user",
-        content: initialUserMessage,
-        hasArtifact: false,
-        createdAt: new Date(),
-        thinking: null,
-        searchQueries: null,
-        isAutomated: false,
+      const assistantMessages = messages.filter((m) => m.role === "assistant")
+      if (assistantMessages.length > 0) {
+        return
       }
-      setMessages([userMessage])
-      handleAutoGenerate(initialUserMessage)
+      hasAutoTriggered.current = true
+      const existingUserMessage = messages.find(
+        (m) => m.role === "user" && m.content === initialUserMessage
+      )
+      if (existingUserMessage) {
+        if (isCodeGenerationRequest(initialUserMessage)) {
+          setIsPreviewOpen(true)
+        }
+        handleAutoGenerate(initialUserMessage)
+      } else {
+        const userMessage: StrictMessage = {
+          id: `initial-user-${Date.now()}`,
+          projectId: project.id,
+          role: "user",
+          content: initialUserMessage,
+          hasArtifact: false,
+          createdAt: new Date(),
+          thinking: null,
+          searchQueries: null,
+          isAutomated: false,
+        }
+        setMessages([userMessage])
+        if (isCodeGenerationRequest(initialUserMessage)) {
+          setIsPreviewOpen(true)
+        }
+        handleAutoGenerate(initialUserMessage)
+      }
     }
-  }, [initialUserMessage, project.id])
-
+  }, [initialUserMessage, project.id, messages])
   useEffect(() => {
     if (!hasAutoTriggered.current && messages.length > 0 && !isStreaming) {
       const lastMessage = messages[messages.length - 1]
       const assistantMessages = messages.filter((m) => m.role === "assistant")
       if (lastMessage.role === "user" && assistantMessages.length === 0) {
         hasAutoTriggered.current = true
+        if (isCodeGenerationRequest(lastMessage.content)) {
+          setIsPreviewOpen(true)
+        }
         handleAutoGenerate(lastMessage.content)
       }
     }
-  }, [messages])
-
+  }, [messages, isStreaming])
   useEffect(() => {
     if (project.id) {
       const savedError = localStorage.getItem(`preview-error-${project.id}`)
@@ -107,7 +172,6 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
       }
     }
   }, [project.id])
-
   useEffect(() => {
     if (project.id) {
       if (previewError) {
@@ -117,11 +181,11 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
       }
     }
   }, [previewError, project.id])
-
   const handleAutoGenerate = async (userContent: string) => {
     setIsStreaming(true)
-
-    // Add temp assistant message to UI immediately
+    if (isCodeGenerationRequest(userContent)) {
+      setIsCodeGenerating(true)
+    }
     const tempAssistant: StrictMessage = {
       id: `temp-auto-${Date.now()}`,
       projectId: project.id,
@@ -134,7 +198,6 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
       isAutomated: true,
     }
     setMessages((prev) => [...prev, tempAssistant])
-
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -145,24 +208,18 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
           model: project.selectedModel || "gemini",
         }),
       })
-
       if (!res.ok) {
         throw new Error(`API error: ${res.status}`)
       }
-
       const reader = res.body?.getReader()
       if (!reader) throw new Error("No stream")
-
       const decoder = new TextDecoder()
       let accumulated = ""
-
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
         const chunk = decoder.decode(value)
         const lines = chunk.split("\n").filter(Boolean)
-
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
@@ -185,6 +242,9 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
                     },
                   ]
                 })
+                if (data.hasArtifact) {
+                  setHasProjectFiles(true)
+                }
               }
             } catch (e) {
               console.error("[v0] JSON parse error:", e)
@@ -194,40 +254,42 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
       }
     } catch (err) {
       console.error("[Auto-Generate] Error:", err)
-      // Remove temp message on error
       setMessages((prev) => prev.filter((m) => !m.id.startsWith("temp-")))
     } finally {
       setIsStreaming(false)
+      setIsCodeGenerating(false)
+      // Remove prompt query param if exists
+      if (searchParams.has('prompt')) {
+        const params = new URLSearchParams(searchParams.toString())
+        params.delete('prompt')
+        router.replace(`${pathname}${params.toString() ? '?' + params.toString() : ''}`, { scroll: false })
+      }
     }
   }
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
-
   const handleNewMessage = (message: SchemaMessage | null) => {
     if (!message || !message.id || (message.role !== "user" && message.role !== "assistant")) return
-
     const safeMessage: StrictMessage = {
       ...message,
       role: message.role as "user" | "assistant",
     }
-
+    if (safeMessage.role === "user" && isCodeGenerationRequest(safeMessage.content)) {
+      setIsPreviewOpen(true)
+      setIsCodeGenerating(true)
+    }
     setMessages((prev) => {
       const validPrev = prev.filter((m) => m && m.id)
-
       if (safeMessage.id.startsWith("temp-")) {
         const existingIndex = validPrev.findIndex((m) => m.id === safeMessage.id)
         if (existingIndex !== -1) {
-          // Update existing temp message with new content
           const newMessages = [...validPrev]
           newMessages[existingIndex] = safeMessage
           return newMessages
         }
-        // Add new temp message if not found
         return [...validPrev, safeMessage]
       }
-
       const filteredPrev = validPrev.filter((m) => !m.id.startsWith("temp-assistant-"))
       const exists = filteredPrev.some((m) => m.id === safeMessage.id)
       if (exists) {
@@ -235,33 +297,27 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
       }
       return [...filteredPrev, safeMessage]
     })
-
     setTimeout(() => scrollToBottom(), 0)
   }
-
   useEffect(() => {
     scrollToBottom()
   }, [messages])
-
-  const handleCodeGenerating = (generating: boolean) => {
-    setIsCodeGenerating(generating)
-  }
-
   const handleDismissError = () => {
     setPreviewError(null)
   }
-
   const handlePreviewError = (error: { message: string; file?: string; line?: string }) => {
     setPreviewError(error)
   }
-
-  // Resizing handlers
+  const handlePreviewClose = () => {
+    if (!hasProjectFiles) {
+      setIsPreviewOpen(false)
+    }
+  }
   const handleMouseMove = (e: MouseEvent) => {
     if (!isResizing.current) return
     const newWidth = startWidth.current + (e.clientX - startX.current)
     setLeftWidth(Math.max(200, Math.min(newWidth, window.innerWidth - 200)))
   }
-
   const handleMouseUp = () => {
     isResizing.current = false
     setIsResizingState(false)
@@ -269,7 +325,6 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
     document.removeEventListener("mousemove", handleMouseMove)
     document.removeEventListener("mouseup", handleMouseUp)
   }
-
   const handleMouseDown = (e: React.MouseEvent) => {
     isResizing.current = true
     setIsResizingState(true)
@@ -279,13 +334,34 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
     document.addEventListener("mousemove", handleMouseMove)
     document.addEventListener("mouseup", handleMouseUp)
   }
-
+  const handleDownload = useCallback(async () => {
+    const JSZip = (await import("jszip")).default
+    const zip = new JSZip()
+    try {
+      const token = await getToken()
+      const res = await fetch(`/api/projects/${project.id}/files`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const { files } = await res.json()
+      files.forEach((file: any) => zip.file(file.path, file.content))
+      const content = await zip.generateAsync({ type: "blob" })
+      const url = URL.createObjectURL(content)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${project.id}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error("[ChatInterface] Download error:", e)
+    }
+  }, [project.id, getToken])
   return (
     <div className="h-screen flex flex-col overflow-hidden">
+      <Navbar projectId={project.id} handleDownload={handleDownload} />
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Chat Panel */}
         <div
-          className={`flex flex-col overflow-hidden ${isResizingState ? "transition-none" : "transition-all duration-200"} ${isPreviewOpen ? "" : "flex-1"}`}
+          className={`flex flex-col overflow-hidden ${isPreviewOpen ? "" : "flex-1"}`} //${isResizingState ? "transition-none" : "transition-all duration-200"}
           style={{ width: isPreviewOpen ? leftWidth : "100%" }}
         >
           <div
@@ -304,7 +380,6 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
             </div>
             <div ref={messagesEndRef} />
           </div>
-
           <div
             className={`flex-none pb-4 ${isResizingState ? "transition-none" : "transition-all duration-300 ease-in-out"}`}
           >
@@ -316,27 +391,22 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
                 projectId={project.id}
                 initialModel={project.selectedModel || "gemini"}
                 onNewMessage={handleNewMessage}
-                previewError={previewError}
                 onDismissError={handleDismissError}
               />
             </div>
           </div>
         </div>
-
-        {/* Vertical Resizable Divider - only if preview open */}
         {isPreviewOpen && (
           <div onMouseDown={handleMouseDown} className="w-1 cursor-col-resize hover:bg-[#e7e7e7] py-4 mt-14" />
         )}
-
-        {/* Right Code Panel - only if open */}
         {isPreviewOpen && (
           <div className="flex-1 px-2 py-4 mt-10 overflow-hidden">
-            <CodePreview 
-              projectId={project.id} 
-              isCodeGenerating={isCodeGenerating} 
+            <CodePreview
+              projectId={project.id}
+              isCodeGenerating={isCodeGenerating}
               onError={handlePreviewError}
               isOpen={isPreviewOpen}
-              onClose={() => setIsPreviewOpen(false)}
+              onClose={handlePreviewClose}
             />
           </div>
         )}

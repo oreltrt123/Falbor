@@ -16,7 +16,7 @@ export default async function HomePage() {
         <main 
           className="flex flex-1 flex-col items-center justify-center px-4 w-full"
           style={{
-           backgroundImage: `url("/bg/bg-white.png")`,
+           backgroundImage: `url("/bg/bg.png")`,
            backgroundRepeat: "no-repeat",
            backgroundSize: "cover",
            backgroundPosition: "center",

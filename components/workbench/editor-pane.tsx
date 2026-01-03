@@ -1,8 +1,8 @@
-// components/workbench/editor-pane.tsx
+"use client"
 import { cn } from "@/lib/utils"
 import { Save } from "lucide-react"
-import { Editor } from '@monaco-editor/react'
-
+import { Editor } from "@monaco-editor/react"
+import * as React from "react"
 interface EditorPaneProps {
   selectedFile: { path: string; content: string } | null
   editedContent: string
@@ -12,35 +12,36 @@ interface EditorPaneProps {
   isDirty: boolean
   handleSave: () => void
   scrollRef: React.RefObject<HTMLDivElement | null>
-  monacoRef: React.RefObject<any> 
+  monacoRef: React.RefObject<any>
   editorOptions: any
 }
-
 const getLanguage = (filePath: string): string => {
   if (!filePath) return "plaintext"
-  const extension = filePath.split(".").pop()?.toLowerCase()
-  switch (extension) {
+  const ext = filePath.split(".").pop()?.toLowerCase()
+  switch (ext) {
     case "ts":
     case "tsx":
       return "typescript"
     case "js":
     case "jsx":
       return "javascript"
-    case "py":
-      return "python"
-    case "html":
-      return "html"
-    case "css":
-      return "css"
     case "json":
       return "json"
+    case "css":
+      return "css"
+    case "html":
+      return "html"
     case "md":
       return "markdown"
+    case "py":
+      return "python"
+    case "yml":
+    case "yaml":
+      return "yaml"
     default:
       return "plaintext"
   }
 }
-
 export function EditorPane({
   selectedFile,
   editedContent,
@@ -53,43 +54,78 @@ export function EditorPane({
   monacoRef,
   editorOptions,
 }: EditorPaneProps) {
+  const language = React.useMemo(
+    () => (selectedFile ? getLanguage(selectedFile.path) : "plaintext"),
+    [selectedFile?.path]
+  )
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {selectedFile ? (
         <>
-          <div className="p-2 bg-[#ffffff] border-b border-[#4444442d] flex items-center justify-between">
-            <p className="text-xs text-black font-mono">{selectedFile.path}</p>
-            {/* Save button hidden/disabled for live AI mode */}
+          {/* Header */}
+          <div className="px-3 py-1 bg-white border-b border-black/10 flex items-center justify-between">
+            <p className="text-xs text-black font-mono truncate">
+              {selectedFile.path}
+            </p>
             <button
               onClick={handleSave}
-              disabled={true} // Always disabled
+              disabled={!isDirty}
               className={cn(
-                "flex items-center gap-1 text-xs text-blue-500 hover:text-blue-400 p-1 rounded transition-colors opacity-0", // Hidden via opacity
-                isDirty && "text-green-500 hover:text-green-400"
+                "flex items-center gap-1 text-xs p-1 rounded",
+                isDirty ? "text-green-500 opacity-100" : "opacity-0",
               )}
-              title="Read-only mode for AI live updates"
             >
               <Save className="w-3 h-3" />
-              {isDirty && <span className="text-xs">Save</span>}
+              Save
             </button>
           </div>
-
+          {/* Editor */}
           <div ref={scrollRef} className="flex-1 overflow-hidden">
             <Editor
-              onMount={(editor, monaco) => {
-                if (!editor) return;
-                monacoRef.current = editor
-                editor.onDidFocusEditorWidget(() => setIsEditorFocused(true))
-                editor.onDidBlurEditorWidget(() => setIsEditorFocused(false))
-              }}
+              key={selectedFile.path} // ⬅️ forces full reload = no partial coloring
               height="100%"
-              defaultLanguage={getLanguage(selectedFile.path)}
+              language={language}
               value={editedContent}
-              onChange={(value) => setEditedContent(value || '')} // Kept but readOnly in options
-              theme="vs-light"
+              theme="vs" // ✅ REAL VS Code light theme
+              onMount={(editor, monaco) => {
+                monacoRef.current = editor
+                // Disable validation to remove red error squiggles
+                monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+                  noSemanticValidation: true,
+                  noSyntaxValidation: true,
+                })
+                // Force semantic highlighting (THIS IS IMPORTANT)
+                monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+                  target: monaco.languages.typescript.ScriptTarget.ESNext,
+                  allowNonTsExtensions: true,
+                  moduleResolution:
+                    monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+                })
+                editor.onDidFocusEditorWidget(() =>
+                  setIsEditorFocused(true)
+                )
+                editor.onDidBlurEditorWidget(() =>
+                  setIsEditorFocused(false)
+                )
+                // Force full tokenization immediately
+                editor.updateOptions({
+                  renderValidationDecorations: "on",
+                })
+              }}
+              onChange={(value) => setEditedContent(value || "")}
               options={{
                 ...editorOptions,
-                readOnly: true, // Ensure read-only for live viewing
+                readOnly: false,
+                automaticLayout: true,
+                fontLigatures: true,
+                semanticHighlighting: true, // 🔥 KEY
+                smoothScrolling: true,
+                cursorBlinking: "smooth",
+                minimap: { enabled: false },
+                scrollbar: {
+                  verticalScrollbarSize: 8,
+                  horizontalScrollbarSize: 8,
+                },
               }}
             />
           </div>

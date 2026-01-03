@@ -37,7 +37,7 @@ export function InputArea({ isAuthenticated }: InputAreaProps) {
           {/* <FigmaImport /> */}
           <button
             onClick={() => setShowIdeas(true)}
-            className="hidden h-8 sm:flex text-sm font-medium cursor-pointer border border-[#dbd9d965] py-1 px-4 hover:border-[#ff8c001f] rounded-4xl bg-[#ffffff] text-[#000000] items-center gap-2 w-full sm:w-auto"
+            className="hidden h-8 sm:flex text-sm font-medium cursor-pointer border border-[#dbd9d965] py-1 px-4 hover:border-[#c1603c56] rounded-4xl bg-[#ffffff] text-[#000000] items-center gap-2 w-full sm:w-auto"
           >
             <Lightbulb size={16} className="h-4 w-4" />
             <span className="font-sans font-light">Suggestions</span>

@@ -1,8 +1,12 @@
 "use client" // <- Important! Must be at the top of the file
 
 import Link from "next/link"
-import { useUser, useClerk } from "@clerk/nextjs"
+import { useUser, useClerk, useAuth } from "@clerk/nextjs"
 import { useState, useRef, useEffect } from "react"
+import { Globe, Code2, Download, Settings, Database } from "lucide-react"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 interface CreditsData {
   credits: number
@@ -11,14 +15,25 @@ interface CreditsData {
   pendingMonthly?: number
 }
 
-export function Navbar() {
+interface NavbarProps {
+  projectId: string
+  handleDownload: () => void
+}
+
+// 🔑 Toggle this when the database section is ready
+const DATABASE_ENABLED = false
+
+export function Navbar({ projectId, handleDownload }: NavbarProps) {
   const { user, isLoaded } = useUser()
   const clerk = useClerk()
+  const { getToken } = useAuth()
   const [open, setOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [creditsData, setCreditsData] = useState<CreditsData | null>(null)
   const [timeLeft, setTimeLeft] = useState(0)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const [isDeploying, setIsDeploying] = useState(false)
+  const [deployedUrl, setDeployedUrl] = useState<string | null>(null)
 
   // Close dropdown if clicked outside
   useEffect(() => {
@@ -71,36 +86,127 @@ export function Navbar() {
     }
   }, [isLoaded, user?.id])
 
+  // Fetch deployment status
+  useEffect(() => {
+    const fetchDeployment = async () => {
+      try {
+        const token = await getToken()
+        const response = await fetch(`/api/projects/${projectId}/deployment`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
+
+        if (!response.ok) {
+          return // No deployment yet, or error - just keep null
+        }
+
+        const data = await response.json()
+        setDeployedUrl(data.deploymentUrl || null)
+      } catch (error) {
+        console.error("[v0] Error fetching deployment:", error)
+      }
+    }
+
+    fetchDeployment()
+  }, [projectId, getToken])
+
+  const handleDeploy = async () => {
+    setIsDeploying(true)
+    try {
+      const token = await getToken()
+
+      const response = await fetch(`/api/projects/${projectId}/deploy`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Deployment failed")
+      }
+
+      const data = await response.json()
+      setDeployedUrl(data.deploymentUrl)
+
+      console.log("[v0] Deployment successful:", data.deploymentUrl)
+      window.open(data.deploymentUrl, "_blank", "noopener,noreferrer")
+    } catch (error) {
+      console.error("[v0] Deployment error:", error)
+      alert(`Failed to deploy: ${error instanceof Error ? error.message : "Unknown error"}`)
+    } finally {
+      setIsDeploying(false)
+    }
+  }
+
   return (
-    <nav className=" z-50 fixed w-full">
+    <nav className="z-50 fixed w-full">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link href="/" className="text-xl font-sans font-light text-white absolute left-8">
           <img width={140} className="relative top-[-1px]" src="/logo_light.png" alt="Logo" />
         </Link>
 
-
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 absolute right-3 mb-2">
           {user ? (
-            <div className="absolute right-3 top-1">
+            <>
+              <button
+                id="download-button"
+                onClick={handleDownload}
+                className={cn(
+                  "flex items-center gap-1 text-sm px-2 py-1 rounded transition-colors cursor-pointer bg-[#e4e4e4] hover:bg-[#e7e7e7] text-black"
+                )}
+                title="Download project as ZIP"
+              >
+                Download
+              </button>
+              <button
+                onClick={handleDeploy}
+                disabled={isDeploying}
+                className={cn(
+                  "flex items-center gap-1 text-sm px-2 py-1 rounded transition-colors cursor-pointer",
+                  isDeploying ? "bg-gray-300 text-gray-500 cursor-not-allowed" : "bg-[#2b2525] hover:bg-[#2b2525ce] text-white",
+                )}
+                title="Deploy to production"
+              >
+                {isDeploying ? "Publishing your site..." : "Publish"}
+              </button>
+
+              {/* {deployedUrl && (
+                <a
+                  href={deployedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-500 hover:underline px-2 py-1"
+                  title="Open deployed site"
+                >
+                  {deployedUrl}
+                </a>
+              )}
+               */}
+
               {/* Credits display */}
-              {creditsData && (
-                <button className="text-black/90 text-[12px] mb-1 p-1 px-2.5 relative top-[-7px]">
+              {/* {creditsData && (
+                <button className="text-black/90 text-[12px] p-1 px-2.5">
                   <span className="flex items-center gap-2 bg-[#e4e4e4] rounded-md px-2 py-1">
                     <img
-                    src="/icons/credit-card.png"
-                    alt="Credits icon"
-                    width={16}
-                    height={16}
-                    className="opacity-80"
+                      src="/icons/credit-card.png"
+                      alt="Credits icon"
+                      width={16}
+                      height={16}
+                      className="opacity-80"
                     />
                     <span>{creditsData.credits} credits remaining</span>
                   </span>
                 </button>
-              )}
+              )} */}
               {/* Profile button */}
               <button
                 onClick={() => setOpen(!open)}
-                className="w-8 h-8 rounded-full mt-1 overflow-hidden focus:outline-none cursor-pointer"
+                className="w-8 h-8 rounded-full overflow-hidden focus:outline-none cursor-pointer"
               >
                 <img
                   src={user.imageUrl}
@@ -112,7 +218,7 @@ export function Navbar() {
               {/* Dropdown */}
               <div
                 ref={dropdownRef}
-                className={`absolute mt-2 right-0 w-56 bg-[#141414] border border-[#3b3b3f2f] rounded-lg shadow-lg z-50 transition-all duration-200 ease-in-out transform ${
+                className={`absolute mt-56 right-0 w-56 bg-[#141414] border border-[#3b3b3f2f] rounded-lg shadow-lg z-50 transition-all duration-200 ease-in-out transform ${
                   open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'
                 }`}
               >
@@ -177,7 +283,7 @@ export function Navbar() {
                   </button>
                 </div>
               </div>
-            </div>
+            </>
           ) : (
             <>
               <Link href="/sign-in">

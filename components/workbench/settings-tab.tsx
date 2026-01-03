@@ -4,14 +4,18 @@ import { useState } from "react"
 import { SettingsSidebar } from "./settings-sidebar"
 import { CustomKnowledgeSection } from "./custom-knowledge-section"
 import { AIModelsSection } from "./ai-models-section"
-import ProjectSettings  from "./ProjectSettings"
+import ProjectSettings from "./ProjectSettings"
+import { SecuritySection } from "./security-section"
+import { TasksSection } from "./tasks"
 
 interface SettingsTabProps {
   projectId: string
 }
 
 export function SettingsTab({ projectId }: SettingsTabProps) {
-  const [activeSection, setActiveSection] = useState<"custom-knowledge" | "project-settings" | "ai-models">("project-settings")
+  const [activeSection, setActiveSection] = useState<
+    "custom-knowledge" | "project-settings" | "ai-models" | "security" | "tasks"
+  >("project-settings")
 
   return (
     <div className="flex h-full">
@@ -21,6 +25,8 @@ export function SettingsTab({ projectId }: SettingsTabProps) {
         {activeSection === "project-settings" && <ProjectSettings projectId={projectId} />}
         {activeSection === "custom-knowledge" && <CustomKnowledgeSection />}
         {activeSection === "ai-models" && <AIModelsSection />}
+        {activeSection === "security" && <SecuritySection projectId={projectId} />}
+        {activeSection === "tasks" && <TasksSection projectId={projectId} />}
       </div>
     </div>
   )

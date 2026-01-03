@@ -6,6 +6,9 @@ import { eq, asc } from "drizzle-orm"
 import { SYSTEM_PROMPT } from "@/lib/common/prompts/prompt"
 import { DISCUSS_SYSTEM_PROMPT } from "@/lib/common/prompts/discuss-prompt"
 
+const GREETING_KEYWORDS = ["hello", "hi", "hey", "greetings", "good morning", "good afternoon", "good evening"]
+const QUESTION_KEYWORDS = ["what is", "who is", "where is", "when is", "why is", "how does", "explain", "tell me about"]
+
 const CODE_KEYWORDS = [
   "build",
   "create",
@@ -36,13 +39,6 @@ const OPENROUTER_MODELS = {
   "claude-3.5-sonnet": "anthropic/claude-3.5-sonnet",
   "grok-3-mini": "x-ai/grok-3-mini",
 }
-
-const PREMIUM_MODELS = [
-  "anthropic/claude-opus-4.5",
-  "anthropic/claude-sonnet-4.5",
-  "anthropic/claude-opus-4",
-  "x-ai/grok-4.1-fast",
-]
 
 export async function POST(request: Request) {
   const { userId } = await auth()
@@ -87,13 +83,6 @@ export async function POST(request: Request) {
       })
       .returning({ id: projects.id })
     projectId = newProject.id
-
-    await db.insert(messages).values({
-      projectId,
-      role: "user",
-      content: message,
-      isAutomated,
-    })
   }
 
   let project: any
@@ -108,20 +97,6 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 })
   }
 
-  if (!isNewProject) {
-    try {
-      await db.insert(messages).values({
-        projectId,
-        role: "user",
-        content: message,
-        isAutomated,
-      })
-    } catch (e) {
-      console.error("[API/Chat] User insert error:", e)
-      return new Response(JSON.stringify({ error: "Failed to save message" }), { status: 500 })
-    }
-  }
-
   let history: any[]
   try {
     history =
@@ -129,6 +104,24 @@ export async function POST(request: Request) {
   } catch (e) {
     console.error("[API/Chat] History fetch error:", e)
     return new Response(JSON.stringify({ error: "Database error" }), { status: 500 })
+  }
+
+  const lastMsg = history[history.length - 1]
+  if (history.length === 0 || !(lastMsg?.role === "user" && lastMsg.content === message)) {
+    try {
+      await db.insert(messages).values({
+        projectId,
+        role: "user",
+        content: message,
+        isAutomated,
+      })
+      history.push({ role: "user", content: message })
+    } catch (e) {
+      console.error("[API/Chat] User insert error:", e)
+      return new Response(JSON.stringify({ error: "Failed to save message" }), { status: 500 })
+    }
+  } else {
+    console.log("[API/Chat] Skipping duplicate user message insert")
   }
 
   const responseStream = await handleModelRequest(
@@ -151,18 +144,24 @@ export async function POST(request: Request) {
   })
 }
 
-function mapHistoryToGemini(history: any[]) {
-  return history.map((msg) => ({
-    role: msg.role === "assistant" ? "model" : "user",
-    parts: [{ text: msg.content }],
-  }))
-}
+function detectMessageType(message: string): "greeting" | "question" | "build" {
+  const lowerMessage = message.toLowerCase().trim()
 
-function mapHistoryToOpenRouter(history: any[]) {
-  return history.map((msg) => ({
-    role: msg.role === "assistant" ? "assistant" : "user",
-    content: msg.content,
-  }))
+  // Check if it's a simple greeting (short and matches greeting keywords)
+  if (lowerMessage.length < 50 && GREETING_KEYWORDS.some((kw) => lowerMessage.includes(kw))) {
+    return "greeting"
+  }
+
+  // Check if it's a question
+  if (
+    QUESTION_KEYWORDS.some((kw) => lowerMessage.includes(kw)) &&
+    !CODE_KEYWORDS.some((kw) => lowerMessage.includes(kw))
+  ) {
+    return "question"
+  }
+
+  // Default to build request
+  return "build"
 }
 
 async function handleModelRequest(
@@ -175,12 +174,26 @@ async function handleModelRequest(
   isAutomated: boolean,
   selectedModel: string,
 ) {
-  const isCodeRequest = CODE_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
+  const messageType = detectMessageType(message)
+  const isCodeRequest =
+    messageType === "build" || CODE_KEYWORDS.some((keyword) => message.toLowerCase().includes(keyword))
 
-  console.log(`[Model: ${selectedModel}] Code request detected: ${isCodeRequest} for message: "${message.substring(0, 50)}..."`)
+  console.log(
+    `[${selectedModel}] Message type: ${messageType}, Code request: ${isCodeRequest} for: "${message.substring(0, 50)}..."`,
+  )
 
   if (selectedModel === "gemini") {
-    return handleGeminiRequest(history, message, imageData, projectId, userId, discussMode, isAutomated, isCodeRequest)
+    return handleGeminiRequest(
+      history,
+      message,
+      imageData,
+      projectId,
+      userId,
+      discussMode,
+      isAutomated,
+      isCodeRequest,
+      messageType,
+    )
   } else {
     return handleOpenRouterRequest(
       history,
@@ -191,6 +204,7 @@ async function handleModelRequest(
       isAutomated,
       isCodeRequest,
       selectedModel,
+      messageType,
     )
   }
 }
@@ -204,6 +218,7 @@ async function handleGeminiRequest(
   discussMode: boolean,
   isAutomated: boolean,
   isCodeRequest: boolean,
+  messageType: "greeting" | "question" | "build",
 ) {
   const googleKey = process.env.GOOGLE_API_KEY
 
@@ -233,6 +248,8 @@ async function handleGeminiRequest(
 
     const encoder = new TextEncoder()
     let fullResponse = ""
+    let accumulatedBuffer = ""
+    let inCodeBlock = false
 
     const geminiModel = genAI.getGenerativeModel({
       model: "gemini-3-flash-preview",
@@ -244,17 +261,38 @@ async function handleGeminiRequest(
       async start(controller) {
         try {
           let userPrompt = message
-          if (isCodeRequest) {
-            console.log("[Gemini] Using Gemini for code generation with explanation")
-            userPrompt = `${message}\n\nProvide a clear, helpful explanation of what you'll build and how it works. Keep it concise (2-4 paragraphs).\n\nThen, generate ONLY the code files requested with proper syntax in this format:\n\`\`\`language file="path/to/file.ext"\n// code here\n\`\`\`\nFocus purely on generating clean, production-ready code after the explanation.`
+
+          if (messageType === "greeting") {
+            console.log("[Gemini] Simple greeting response")
+            userPrompt = `${message}\n\nRespond naturally and briefly like a friendly human. No thinking tags, no code, just a warm greeting back.`
+          } else if (messageType === "question") {
+            console.log("[Gemini] Question with thinking and search")
+            userPrompt = `${message}\n\nThink through this question step by step inside <Thinking> tags. Search for current information if needed inside <Search> tags. Then provide a clear, detailed answer in plain text. No code generation.`
+          } else if (isCodeRequest) {
+            console.log("[Gemini] Responding to build request with dynamic flow")
+            userPrompt = `${message}\n\nIMPORTANT: Respond with ORGANIC, DYNAMIC thinking process:
+            
+1. Think multiple times throughout your response (not just once at the start)
+2. Search for information as you need it during planning
+3. Read and analyze in a natural, messy order
+4. Your response should show: Think → partial answer → Search → Think again → Read → Plan → Think → Write code
+5. Make it feel like natural problem-solving, not a rigid template
+
+Use these tags organically throughout:
+- <Thinking>your reasoning</Thinking> - Use MULTIPLE times
+- <Search>search query and results</Search> - Use when you need info
+- <UserMessage>understanding</UserMessage> - Once at start
+- <Planning>file list</Planning> - Once when ready
+- <FileChecks>validation</FileChecks> - If needed
+- Response text - Your explanation
+- Code blocks - The actual files
+
+Then generate production-ready code files.`
           } else {
             console.log("[Gemini] Using Gemini for conversational response")
           }
 
-          const contents = [
-            ...mapHistoryToGemini(conversationHistory),
-            { role: "user", parts: [{ text: userPrompt }] },
-          ]
+          const contents = [...mapHistoryToGemini(conversationHistory), { role: "user", parts: [{ text: userPrompt }] }]
 
           let continuationCount = 0
           do {
@@ -267,7 +305,39 @@ async function handleGeminiRequest(
               const part = chunk.candidates?.[0]?.content?.parts?.[0]
               if (part?.text) {
                 fullResponse += part.text
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: part.text })}\n\n`))
+
+                if (isCodeRequest && messageType === "build") {
+                  accumulatedBuffer += part.text
+                  const lines = accumulatedBuffer.split("\n")
+                  let textToSend = ""
+
+                  for (let i = 0; i < lines.length - 1; i++) {
+                    const line = lines[i]
+
+                    if (line.match(/^```\w+\s+file="/)) {
+                      inCodeBlock = true
+                      continue
+                    }
+
+                    if (line.trim() === "```" && inCodeBlock) {
+                      inCodeBlock = false
+                      continue
+                    }
+
+                    if (!inCodeBlock) {
+                      textToSend += line + "\n"
+                    }
+                  }
+
+                  accumulatedBuffer = lines[lines.length - 1]
+
+                  if (textToSend) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: textToSend })}\n\n`))
+                  }
+                } else {
+                  // For greetings and questions, stream everything
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: part.text })}\n\n`))
+                }
               }
               if (chunk.candidates?.[0]?.finishReason) {
                 finishReason = chunk.candidates[0].finishReason
@@ -285,17 +355,31 @@ async function handleGeminiRequest(
 
           console.log(`[Gemini] Response length: ${fullResponse.length}`)
 
-          await saveAssistantMessage(
-            projectId,
-            fullResponse,
-            [],
-            controller,
-            encoder,
-            undefined,
-            false,
-            discussMode,
-            isAutomated,
-          )
+          if (messageType === "build" && isCodeRequest) {
+            await saveAssistantMessageWithParallelGeneration(
+              projectId,
+              fullResponse,
+              [],
+              controller,
+              encoder,
+              undefined,
+              false,
+              discussMode,
+              isAutomated,
+            )
+          } else {
+            await saveAssistantMessage(
+              projectId,
+              fullResponse,
+              [],
+              controller,
+              encoder,
+              undefined,
+              false,
+              discussMode,
+              isAutomated,
+            )
+          }
         } catch (error) {
           console.error("[Gemini] Stream error:", error)
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`))
@@ -311,6 +395,13 @@ async function handleGeminiRequest(
   }
 }
 
+function mapHistoryToGemini(history: any[]) {
+  return history.map((msg) => ({
+    role: msg.role === "assistant" ? "model" : "user",
+    parts: [{ text: msg.content }],
+  }))
+}
+
 async function handleOpenRouterRequest(
   history: any[],
   message: string,
@@ -320,6 +411,7 @@ async function handleOpenRouterRequest(
   isAutomated: boolean,
   isCodeRequest: boolean,
   selectedModel: string,
+  messageType: "greeting" | "question" | "build",
 ) {
   const openRouterKey = process.env.OPENROUTER_API_KEY
 
@@ -343,11 +435,18 @@ async function handleOpenRouterRequest(
 
     const encoder = new TextEncoder()
     let fullResponse = ""
+    let accumulatedBuffer = ""
+    let inCodeBlock = false
 
     let userPrompt = message
-    if (isCodeRequest) {
-      console.log(`[OpenRouter/${modelId}] Using for code generation with explanation`)
-      userPrompt = `${message}\n\nProvide a clear, helpful explanation of what you'll build and how it works. Keep it concise (2-4 paragraphs).\n\nThen, generate ONLY the code files requested with proper syntax in this format:\n\`\`\`language file="path/to/file.ext"\n// code here\n\`\`\`\nFocus purely on generating clean, production-ready code after the explanation.`
+
+    if (messageType === "greeting") {
+      userPrompt = `${message}\n\nRespond naturally and briefly like a friendly human. No thinking tags, no code, just a warm greeting back.`
+    } else if (messageType === "question") {
+      userPrompt = `${message}\n\nThink through this question step by step. Search for current information if needed. Then provide a clear, detailed answer. No code generation.`
+    } else if (isCodeRequest) {
+      console.log(`[OpenRouter/${modelId}] Using for code generation with dynamic flow`)
+      userPrompt = `${message}\n\nRespond with ORGANIC, DYNAMIC thinking - think, search, read, plan multiple times throughout naturally. Then generate clean code files.`
     }
 
     const messages = [
@@ -362,7 +461,7 @@ async function handleOpenRouterRequest(
           const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
-              "Authorization": `Bearer ${openRouterKey}`,
+              Authorization: `Bearer ${openRouterKey}`,
               "Content-Type": "application/json",
               "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
               "X-Title": "AI Website Builder",
@@ -406,7 +505,38 @@ async function handleOpenRouterRequest(
                   const content = parsed.choices?.[0]?.delta?.content
                   if (content) {
                     fullResponse += content
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: content })}\n\n`))
+
+                    if (isCodeRequest && messageType === "build") {
+                      accumulatedBuffer += content
+                      const lines = accumulatedBuffer.split("\n")
+                      let textToSend = ""
+
+                      for (let i = 0; i < lines.length - 1; i++) {
+                        const line = lines[i]
+
+                        if (line.match(/^```\w+\s+file="/)) {
+                          inCodeBlock = true
+                          continue
+                        }
+
+                        if (line.trim() === "```" && inCodeBlock) {
+                          inCodeBlock = false
+                          continue
+                        }
+
+                        if (!inCodeBlock) {
+                          textToSend += line + "\n"
+                        }
+                      }
+
+                      accumulatedBuffer = lines[lines.length - 1]
+
+                      if (textToSend) {
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: textToSend })}\n\n`))
+                      }
+                    } else {
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: content })}\n\n`))
+                    }
                   }
                 } catch (e) {
                   console.error("[OpenRouter] Parse error:", e)
@@ -417,17 +547,31 @@ async function handleOpenRouterRequest(
 
           console.log(`[OpenRouter/${modelId}] Response length: ${fullResponse.length}`)
 
-          await saveAssistantMessage(
-            projectId,
-            fullResponse,
-            [],
-            controller,
-            encoder,
-            undefined,
-            false,
-            discussMode,
-            isAutomated,
-          )
+          if (messageType === "build" && isCodeRequest) {
+            await saveAssistantMessageWithParallelGeneration(
+              projectId,
+              fullResponse,
+              [],
+              controller,
+              encoder,
+              undefined,
+              false,
+              discussMode,
+              isAutomated,
+            )
+          } else {
+            await saveAssistantMessage(
+              projectId,
+              fullResponse,
+              [],
+              controller,
+              encoder,
+              undefined,
+              false,
+              discussMode,
+              isAutomated,
+            )
+          }
         } catch (error) {
           console.error(`[OpenRouter/${modelId}] Stream error:`, error)
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: String(error) })}\n\n`))
@@ -544,8 +688,109 @@ async function saveAssistantMessage(
     } catch (sendError) {
       console.error("[Save] Error sending error message:", sendError)
     }
-  } finally {
-    controller.close()
+  }
+}
+
+async function saveAssistantMessageWithParallelGeneration(
+  projectId: string,
+  fullResponse: string,
+  searchQueries: any[],
+  controller: any,
+  encoder: any,
+  uploadedFiles?: any[],
+  generateImages?: boolean,
+  discussMode = false,
+  isAutomated = false,
+) {
+  try {
+    console.log("[ParallelGen] Extracting code blocks from response...")
+    const codeBlocks = discussMode ? [] : extractCodeBlocks(fullResponse)
+    console.log(
+      `[ParallelGen] Found ${codeBlocks.length} code blocks - splitting into ${codeBlocks.length} parallel workers`,
+    )
+
+    const cleanContent = discussMode ? fullResponse.trim() : removeCodeBlocks(fullResponse)
+    const hasArtifact = codeBlocks.length > 0 && !discussMode
+
+    console.log("[ParallelGen] Inserting message into database...")
+    const [newMessage] = await db
+      .insert(messages)
+      .values({
+        projectId,
+        role: "assistant",
+        content: cleanContent,
+        hasArtifact,
+        searchQueries: searchQueries.length > 0 ? searchQueries : null,
+        isAutomated,
+      })
+      .returning()
+
+    console.log("[ParallelGen] Message inserted with ID:", newMessage.id)
+
+    if (hasArtifact && codeBlocks.length > 0) {
+      const existingFiles = await db.select().from(files).where(eq(files.projectId, projectId))
+
+      console.log(`[ParallelGen] 🚀 Launching ${codeBlocks.length} parallel workers...`)
+      const startTime = Date.now()
+
+      const filePromises = codeBlocks.map(async (block, index) => {
+        console.log(`[Worker ${index + 1}] Starting work on: ${block.path}`)
+
+        const previousFile = existingFiles.find((f) => f.path === block.path)
+        const previousContent = previousFile?.content ?? ""
+        const previousLines = previousContent.split("\n").length
+        const newLines = block.content.split("\n").length
+        const additions = Math.max(0, newLines - previousLines)
+        const deletions = Math.max(0, previousLines - newLines)
+
+        const [file] = await db
+          .insert(files)
+          .values({
+            projectId,
+            messageId: newMessage.id,
+            path: block.path,
+            content: block.content,
+            language: block.language,
+            additions,
+            deletions,
+          })
+          .returning()
+
+        console.log(`[Worker ${index + 1}] ✅ Completed: ${block.path} (${file.id})`)
+        return file.id
+      })
+
+      // Execute all file insertions in parallel
+      const fileIds = await Promise.all(filePromises)
+
+      const endTime = Date.now()
+      const duration = ((endTime - startTime) / 1000).toFixed(2)
+      console.log(`[ParallelGen] 🎉 All ${codeBlocks.length} workers completed in ${duration}s (parallel execution!)`)
+
+      console.log("[ParallelGen] Creating artifact...")
+      await db.insert(artifacts).values({
+        projectId,
+        messageId: newMessage.id,
+        title: `Code from ${new Date().toLocaleString()} (Generated in ${duration}s)`,
+        fileIds,
+      })
+      console.log("[ParallelGen] Artifact created")
+    }
+
+    await db.update(projects).set({ updatedAt: new Date() }).where(eq(projects.id, projectId))
+
+    console.log("[ParallelGen] Sending done signal to client")
+    controller.enqueue(
+      encoder.encode(`data: ${JSON.stringify({ done: true, messageId: newMessage.id, hasArtifact, projectId })}\n\n`),
+    )
+  } catch (e) {
+    console.error("[ParallelGen] Error:", e)
+    try {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Failed to save response" })}\n\n`))
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, projectId })}\n\n`))
+    } catch (sendError) {
+      console.error("[ParallelGen] Error sending error message:", sendError)
+    }
   }
 }
 

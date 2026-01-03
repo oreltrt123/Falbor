@@ -62,15 +62,15 @@ interface ModelOption {
 export type ModelType = "gemini" | "claude" | "gpt" | "deepseek" | "gptoss"
 
 const DEFAULT_MENUS: MenuConfig[] = [
-  {
-    label: 'Help',
-    items: [
-      { type: 'item', label: 'Search', action: 'search-help' },
-      { type: 'separator' },
-      { type: 'item', label: 'Help Docs', action: 'app-help' },
-      { type: 'item', label: 'Contact Support', action: 'contact-support' },
-    ],
-  },
+  // {
+  //   label: 'Help',
+  //   items: [
+  //     { type: 'item', label: 'Search', action: 'search-help' },
+  //     { type: 'separator' },
+  //     { type: 'item', label: 'Help Docs', action: 'app-help' },
+  //     { type: 'item', label: 'Contact Support', action: 'contact-support' },
+  //   ],
+  // },
 ];
 
 const APPLE_MENU_ITEMS: MenuItemOption[] = [
@@ -463,16 +463,10 @@ const MacOSMenuBar: React.FC<MacOSMenuBarProps> = ({
   return (
     <div className="relative">
       <div
-        className={`backdrop-blur-md ${className}`}
+        className={`backdrop-blur-md border shadow-xs ${className}`}
         style={{
           height: '40px',
-          background: 'rgba(40, 40, 40, 0.65)',
-          border: '1px solid rgba(255, 255, 255, 0.12)',
           borderRadius: '8px',
-          boxShadow: `
-            0 2px 8px rgba(0, 0, 0, 0.2),
-            inset 0 1px 0 rgba(255, 255, 255, 0.12)
-          `,
         }}
       >
         <div className="flex justify-between items-center h-full px-4">
@@ -482,23 +476,27 @@ const MacOSMenuBar: React.FC<MacOSMenuBarProps> = ({
             <div
               ref={(el) => { triggerRefs.current['apple'] = el; }}
               onClick={() => toggleMenu('apple')}
-              className="cursor-pointer hover:opacity-80 transition-opacity duration-150 mt-1"
+              className="cursor-pointer hover:opacity-80 transition-opacity duration-150 mb-1"
             >
-              <img src="/logo.png" width={100} alt="Logo" />
+              <img src="/logo_light.png" width={100} alt="Logo" />
             </div>
 
             <Link href={'/pricing'}>
-              <span className="text-white text-sm font-semibold">
+              <span className="text-black/80 hover:text-black/70 text-sm font-semibold">
                 {appName}
               </span>
             </Link>
-
+            <Link href={'/projects'}>
+              <span className="text-black/80 hover:text-black/70 text-sm font-semibold">
+                Projects
+              </span>
+            </Link>
             <div className="flex items-center space-x-6">
               {menus.map((menu) => (
                 <span
                   key={menu.label}
                   ref={(el) => { triggerRefs.current[menu.label] = el; }}
-                  className="text-white text-sm cursor-pointer hover:opacity-80 transition-opacity duration-150 select-none"
+                  className="text-black text-sm cursor-pointer hover:opacity-80 transition-opacity duration-150 select-none"
                   onClick={() => toggleMenu(menu.label)}
                 >
                   {menu.label}
@@ -515,7 +513,7 @@ const MacOSMenuBar: React.FC<MacOSMenuBarProps> = ({
                   <button
                     ref={(el) => { triggerRefs.current['credits'] = el; }}
                     onClick={() => toggleMenu('credits')}
-                    className="text-white/90 text-[14px] mt-4 p-1 px-2.5 top-[-6px] relative hover:opacity-80"
+                    className="text-black/90 text-[14px] mt-4 p-1 px-2.5 top-[-6px] relative hover:opacity-80"
                   >
                     <span className="flex items-center gap-2 rounded-md py-1">
                       <span>{creditsData.credits} credits</span>

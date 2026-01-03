@@ -7,9 +7,7 @@ export default async function HomePage() {
   const { userId } = await auth()
 
   return (
-    <div className="relative min-h-screen flex flex-col bg-[#000000ef] overflow-hidden">
-      <Navbar />
-
+    <div className="relative min-h-screen flex flex-col bg-[#ffffffef] overflow-hidden">
       {/* HERO IMAGE SECTION - Quarter screen height */}
       <section className="relative h-[57vh] w-full overflow-hidden">
       <section className="relative top-10 w-full py-16 px-4 flex items-center justify-center">
@@ -22,31 +20,31 @@ export default async function HomePage() {
       <section className="w-full py-20 px-4 grid grid-cols-1 lg:grid-cols-2 gap-20 items-center justify-items-center">
         {/* What is Falbor? Column */}
         <div className="space-y-6 max-w-md">
-          <h2 className="text-4xl font-light text-white/90">What is Falbor?</h2>
-          <p className="text-white/90 leading-relaxed text-lg">
+          <h2 className="text-4xl font-light text-black/90">What is Falbor?</h2>
+          <p className="text-black/90 leading-relaxed text-lg">
             Falbor is an AI-powered website builder that lets anyone turn ideas into working apps in minutes. Using just natural language, you can create personal tools, back-office apps, customer portals, or complete enterprise products that are ready to use.
           </p>
         </div>
 
         {/* Our Mission Column */}
         <div className="space-y-6 max-w-md">
-          <h2 className="text-4xl font-light text-white/90">Our Mission</h2>
-          <p className="text-white/90 leading-relaxed text-lg">
+          <h2 className="text-4xl font-light text-black/90">Our Mission</h2>
+          <p className="text-black/90 leading-relaxed text-lg">
             At Falbor, our mission is to make it possible for anyone to turn their dream into a reality without needing to code, hire a team, or wait around. We've created a space where building something new is as simple as describing it.
           </p>
-          <p className="text-white/90 leading-relaxed font-semibold text-sm uppercase tracking-wide">
+          <p className="text-black/90 leading-relaxed font-semibold text-sm uppercase tracking-wide">
             No complexity. No gatekeepers. Just you building.
           </p>
         </div>
       </section>
 
       {/* FOUNDING STORY - Light blue background with photo and text */}
-      <section className="w-full py-20 px-4 bg-[#15171a]">
+      <section className="w-full py-20 px-4 bg-[#ececec]">
         <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           {/* Left Text */}
           <div className="lg:col-span-1 space-y-4">
-            <h2 className="text-3xl font-light text-white/90">Founding Story</h2>
-            <p className="text-white/90 leading-relaxed">
+            <h2 className="text-3xl font-light text-black/90">Founding Story</h2>
+            <p className="text-black/90 leading-relaxed">
               Falbor started with a hunch. If you gave people the right starting point, and stripped away the friction of traditional software building, they'd create incredible things.
             </p>
           </div>
@@ -65,9 +63,9 @@ export default async function HomePage() {
 
           {/* Right Text */}
           <div className="lg:col-span-1 space-y-4">
-            <h3 className="text-xl font-semibold text-white/90">Oral Revivo</h3>
-            <p className="text-sm text-white/90">Founder & CEO</p>
-            <p className="text-white/90 leading-relaxed">
+            <h3 className="text-xl font-semibold text-black/90">Oral Revivo</h3>
+            <p className="text-sm text-black/90">Founder & CEO</p>
+            <p className="text-black/90 leading-relaxed">
               I’m Oral Revivo. I’m 16 years old, and I’ve been programming for six years.
               I built Falbor because when I started programming — long before AI tools existed —
               solving problems was extremely difficult. If you ran into a bug, you couldn’t send
@@ -109,10 +107,10 @@ export default async function HomePage() {
       </section> */}
 
       {/* JOIN US SECTION - With Discord and Reddit buttons */}
-      <section className="w-full py-20 px-4 bg-gradient-to-r from-[#000000ef] text-white">
+      <section className="w-full py-20 px-4 bg-gradient-to-r from-[#e9e9e9ef] text-black">
         <div className="max-w-4xl mx-auto text-center space-y-8">
           <h2 className="text-4xl font-light">Join Us</h2>
-          <p className="text-gray-300 leading-relaxed max-w-2xl mx-auto">
+          <p className="text-black leading-relaxed max-w-2xl mx-auto">
             The Falbor community is full of bold creators and builders who share knowledge, give feedback, and cheer each other on. Want to meet them?
           </p>
           <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">

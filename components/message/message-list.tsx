@@ -4,11 +4,26 @@ import type React from "react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Loader2, ChevronDown, Brain, FileText, Folder, CheckCircle2, XCircle, Loader, List, AlertCircle, Bug, Code, Copy, Pencil, RefreshCw } from 'lucide-react'
+import {
+  Loader2,
+  ChevronDown,
+  Brain,
+  FileText,
+  CheckCircle2,
+  XCircle,
+  List,
+  AlertCircle,
+  Bug,
+  Copy,
+  Globe,
+  ChevronRight,
+  Folder,
+  Search,
+  Palette,
+} from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
-import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism"
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { useState, useEffect, useCallback } from "react"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import remarkGfm from "remark-gfm" // For better Markdown support (tables, etc.)
@@ -30,156 +45,170 @@ interface MessageListProps {
   onCopy?: (content: string) => void
   onEdit?: (id: string, content: string) => void
   onRegenerate?: (id: string) => void
-  onOpenPreview?: (version: string, project: string, codeBlocks: Array<{ filename: string; code: string; language: string }>) => void // New prop for opening preview
+  onOpenPreview?: (
+    version: string,
+    project: string,
+    codeBlocks: Array<{ filename: string; code: string; language: string }>,
+  ) => void // New prop for opening preview
 }
+
+interface TextPart {
+  type: 'text';
+  content: string;
+}
+
+interface DesignPart {
+  type: 'design';
+  content: { name: string; config: any; json: string };
+}
+
+type UserPart = TextPart | DesignPart;
 
 function parseAIResponse(content: string) {
-  const sections: {
-    thinking?: string
-    commentary?:string
-    userMessage?: string
-    planning?: string
-    search?: string
-    fileChecks?: Array<{ file: string; error: string; fix: string; status: string }>
-    files?: { name: string; path: string; status: 'success' | 'error' | 'loading' }[]
-    responseText?: string
-    codeBlocks?: Array<{ filename: string; code: string; language: string }>
-    previewButton?: { version: string; project: string; text: string }
-    importCard?: { repo: string }
-  } = {}
-
-  // Extract <Thinking>...</Thinking>
-  const thinkingMatch = content.match(/<Thinking>([\s\S]*?)<\/Thinking>/i)
-  if (thinkingMatch) {
-    sections.thinking = thinkingMatch[1].trim()
-  }
-  // Extract <Thinking>...</Thinking>
-  const CommentaryMatch = content.match(/<commentary>([\s\S]*?)<\/commentary>/i)
-  if (CommentaryMatch) {
-    sections.commentary = CommentaryMatch[1].trim()
-  }
-  // Extract <UserMessage>...</UserMessage>
-  const userMessageMatch = content.match(/<UserMessage>([\s\S]*?)<\/UserMessage>/i)
-  if (userMessageMatch) {
-    sections.userMessage = userMessageMatch[1].trim()
+  const tagRegexes: Record<string, RegExp> = {
+    thinking: /<Thinking>([\s\S]*?)<\/Thinking>/gi,
+    commentary: /<commentary>([\s\S]*?)<\/commentary>/gi,
+    userMessage: /<UserMessage>([\s\S]*?)<\/UserMessage>/gi,
+    planning: /<Planning>([\s\S]*?)<\/Planning>/gi,
+    search: /<Search>([\s\S]*?)<\/Search>/gi,
+    fileChecks: /<FileChecks>([\s\S]*?)<\/FileChecks>/gi,
+    files: /<Files>([\s\S]*?)<\/Files>/gi,
+    previewButton: /<PreviewButton version="([^"]+)" project="([^"]+)">([\s\S]*?)<\/PreviewButton>/gi,
+    importCard: /<ImportCard repo="([^"]+)" \/>/gi,
   }
 
-  // Extract <Planning>...</Planning>
-  const planningMatch = content.match(/<Planning>([\s\S]*?)<\/Planning>/i)
-  if (planningMatch) {
-    sections.planning = planningMatch[1].trim()
-  }
+  const codeRegex = /\`\`\`(\w+)?\s*(?:file="([^"]+)")?\s*\n([\s\S]*?)\`\`\`/g
 
-  const searchMatch = content.match(/<Search>([\s\S]*?)<\/Search>/i)
-  if (searchMatch) {
-    sections.search = searchMatch[1].trim()
-  }
+  let matches: Array<{ type: string; start: number; fullMatch: string; content: any }> = []
 
-  // Extract <FileChecks>...</FileChecks>
-  const fileChecksMatch = content.match(/<FileChecks>([\s\S]*?)<\/FileChecks>/i)
-  if (fileChecksMatch) {
-    const checksContent = fileChecksMatch[1]
-    sections.fileChecks = []
-    // Parse lines like: File: path.tsx - Error: desc - Fix: desc - Status: FIXED
-    const checkLines = checksContent.split('\n').filter(line => line.includes('File:') || line.includes('- Error:'))
-    let currentFile = ''
-    checkLines.forEach(line => {
-      if (line.includes('File:')) {
-        currentFile = line.match(/File:\s*(.+?)(?:\s*-|$)/)?.[1]?.trim() || ''
-      } else if (line.includes('- Error:')) {
-        const errorMatch = line.match(/-\s*Error:\s*(.+?)(?:\s*-|$)/)
-        const fixMatch = line.match(/-\s*Fix Applied:\s*(.+?)(?:\s*-|$)/)
-        const statusMatch = line.match(/-\s*Status:\s*(.+)/)
-        if (currentFile && errorMatch) {
-          sections.fileChecks!.push({
-            file: currentFile,
-            error: errorMatch[1].trim(),
-            fix: fixMatch ? fixMatch[1].trim() : '',
-            status: statusMatch ? statusMatch[1].trim() : 'PENDING'
-          })
-        }
+  // Collect tag matches
+  for (const [type, regex] of Object.entries(tagRegexes)) {
+    for (const match of content.matchAll(regex)) {
+      let parsedContent: any
+      if (type === 'previewButton') {
+        parsedContent = { version: match[1], project: match[2], text: match[3].trim() }
+      } else if (type === 'importCard') {
+        parsedContent = { repo: match[1] }
+      } else if (type === 'fileChecks') {
+        const checksContent = match[1].trim()
+        const checks: Array<{ file: string; error: string; fix: string; status: string }> = []
+        const checkLines = checksContent.split("\n").filter((line) => line.includes("File:") || line.includes("- Error:"))
+        let currentFile = ""
+        checkLines.forEach((line) => {
+          if (line.includes("File:")) {
+            currentFile = line.match(/File:\s*(.+?)(?:\s*-|$)/)?.[1]?.trim() || ""
+          } else if (line.includes("- Error:")) {
+            const errorMatch = line.match(/-\s*Error:\s*(.+?)(?:\s*-|$)/)
+            const fixMatch = line.match(/-\s*Fix Applied:\s*(.+?)(?:\s*-|$)/)
+            const statusMatch = line.match(/-\s*Status:\s*(.+)/)
+            if (currentFile && errorMatch) {
+              checks.push({
+                file: currentFile,
+                error: errorMatch[1].trim(),
+                fix: fixMatch ? fixMatch[1].trim() : "",
+                status: statusMatch ? statusMatch[1].trim() : "PENDING",
+              })
+            }
+          }
+        })
+        parsedContent = checks
+      } else if (type === 'files') {
+        const filesContent = match[1].trim()
+        const filesList: { name: string; path: string; status: "success" | "error" | "loading" }[] = []
+        const fileLines = filesContent.split("\n").filter((line) => line.trim())
+        fileLines.forEach((line) => {
+          const successMatch = line.match(/(.+?)\s*[✓✔]/i)
+          const errorMatch = line.match(/(.+?)\s*[✗✘X]/i)
+          const loadingMatch = line.match(/(.+?)\s*[⏳⌛…]/i)
+          if (successMatch) {
+            filesList.push({ name: successMatch[1].trim(), path: successMatch[1].trim(), status: "success" })
+          } else if (errorMatch) {
+            filesList.push({ name: errorMatch[1].trim(), path: errorMatch[1].trim(), status: "error" })
+          } else if (loadingMatch) {
+            filesList.push({ name: loadingMatch[1].trim(), path: loadingMatch[1].trim(), status: "loading" })
+          }
+        })
+        parsedContent = filesList
+      } else {
+        parsedContent = match[1].trim()
       }
-    })
-  }
-
-  // Extract <Files>...</Files> (existing logic)
-  const filesMatch = content.match(/<Files>([\s\S]*?)<\/Files>/i)
-  if (filesMatch) {
-    const filesContent = filesMatch[1]
-    sections.files = []
-    
-    const fileLines = filesContent.split('\n').filter(line => line.trim())
-    fileLines.forEach(line => {
-      const successMatch = line.match(/(.+?)\s*[✓✔]/i)
-      const errorMatch = line.match(/(.+?)\s*[✗✘X]/i)
-      const loadingMatch = line.match(/(.+?)\s*[⏳⌛…]/i)
-      
-      if (successMatch) {
-        sections.files!.push({ name: successMatch[1].trim(), path: successMatch[1].trim(), status: 'success' })
-      } else if (errorMatch) {
-        sections.files!.push({ name: errorMatch[1].trim(), path: errorMatch[1].trim(), status: 'error' })
-      } else if (loadingMatch) {
-        sections.files!.push({ name: loadingMatch[1].trim(), path: loadingMatch[1].trim(), status: 'loading' })
-      }
-    })
-  }
-
-  // Extract <PreviewButton version="..." project="...">...</PreviewButton>
-  const previewButtonMatch = content.match(/<PreviewButton version="(\d+\.\d+)" project="(.+?)">([\s\S]*?)<\/PreviewButton>/i)
-  if (previewButtonMatch) {
-    sections.previewButton = {
-      version: previewButtonMatch[1],
-      project: previewButtonMatch[2],
-      text: previewButtonMatch[3].trim()
+      matches.push({ type, start: match.index!, fullMatch: match[0], content: parsedContent })
     }
   }
 
-  // Extract <ImportCard repo="..." />
-  const importCardMatch = content.match(/<ImportCard repo="([^"]+)" \/>/i)
-  if (importCardMatch) {
-    sections.importCard = {
-      repo: importCardMatch[1]
-    }
-  }
-
-  // Extract code blocks (existing logic)
-  const codeBlockRegex = /\`\`\`(\w+)?\s*(?:file="([^"]+)")?\s*\n([\s\S]*?)\`\`\`/g
-  const codeBlocks: Array<{ filename: string; code: string; language: string }> = []
-  let match
-  
-  while ((match = codeBlockRegex.exec(content)) !== null) {
-    const language = match[1] || 'typescript'
+  // Collect code block matches
+  for (const match of content.matchAll(codeRegex)) {
+    const language = match[1] || "typescript"
     const filename = match[2] || `file.${language}`
     const code = match[3].trim()
-    codeBlocks.push({ filename, code, language })
-  }
-  
-  if (codeBlocks.length > 0) {
-    sections.codeBlocks = codeBlocks
-  }
-
-  // Get response text (enhanced: remove all tags AND code blocks)
-  let responseText = content
-    .replace(/<Thinking>[\s\S]*?<\/Thinking>/gi, '')
-    .replace(/<commentary>[\s\S]*?<\/commentary>/gi, '')
-    .replace(/<UserMessage>[\s\S]*?<\/UserMessage>/gi, '')
-    .replace(/<Planning>[\s\S]*?<\/Planning>/gi, '')
-    .replace(/<Search>[\s\S]*?<\/Search>/gi, '')
-    .replace(/<FileChecks>[\s\S]*?<\/FileChecks>/gi, '')
-    .replace(/<Files>[\s\S]*?<\/Files>/gi, '')
-    .replace(/<PreviewButton[\s\S]*?<\/PreviewButton>/gi, '')
-    .replace(/<ImportCard [^>]+ \/>/gi, '')
-    .replace(/\`\`\`[\s\S]*?\`\`\`/g, '')
-    .trim()
-
-  if (responseText) {
-    sections.responseText = responseText
+    matches.push({
+      type: 'codeBlock',
+      start: match.index!,
+      fullMatch: match[0],
+      content: { filename, code, language }
+    })
   }
 
-  return sections
+  // Sort matches by start position
+  matches.sort((a, b) => a.start - b.start)
+
+  // Build parts
+  const parts: Array<{ type: string; content: any }> = []
+  const codeBlocks: Array<{ filename: string; code: string; language: string }> = []
+  let lastEnd = 0
+  for (const m of matches) {
+    const textBefore = content.substring(lastEnd, m.start).trim()
+    if (textBefore) {
+      parts.push({ type: 'text', content: textBefore })
+    }
+    if (m.type === 'codeBlock') {
+      codeBlocks.push(m.content)
+    } else {
+      parts.push({ type: m.type, content: m.content })
+    }
+    lastEnd = m.start + m.fullMatch.length
+  }
+  const finalText = content.substring(lastEnd).trim()
+  if (finalText) {
+    parts.push({ type: 'text', content: finalText })
+  }
+
+  return { parts, codeBlocks }
 }
 
-export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy, onEdit, onRegenerate, onOpenPreview }: MessageListProps) {
+function parseUserContent(content: string): { parts: UserPart[] } {
+  const designRegex = /## Design System: ([\w\s]+)\n([\s\S]*)/i
+  const match = content.match(designRegex)
+  if (match) {
+    const mainContent = content.slice(0, match.index).trim()
+    const designName = match[1].trim()
+    const designJson = match[2].trim()
+    let designConfig
+    try {
+      designConfig = JSON.parse(designJson)
+    } catch (e) {
+      console.error("Failed to parse design JSON:", e)
+      designConfig = null
+    }
+    return {
+      parts: [
+        { type: 'text', content: mainContent },
+        { type: 'design', content: { name: designName, config: designConfig, json: designJson } }
+      ]
+    }
+  }
+  return { parts: [{ type: 'text', content: content.trim() }] }
+}
+
+export function MessageList({
+  messages,
+  onArtifactClick,
+  onCodeExtracted,
+  onCopy,
+  onEdit,
+  onRegenerate,
+  onOpenPreview,
+}: MessageListProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, Record<string, boolean>>>({})
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<{ name: string; content: string } | null>(null)
@@ -189,7 +218,8 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
   const [fullMessageModal, setFullMessageModal] = useState<Message | null>(null)
   const [modalExpandedSections, setModalExpandedSections] = useState<Record<string, boolean>>({})
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editContent, setEditContent] = useState<string>('')
+  const [editContent, setEditContent] = useState<string>("")
+  const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({})
 
   const toggleSection = (messageId: string, section: string) => {
     setExpandedSections((prev) => ({
@@ -202,17 +232,17 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
   }
 
   const openFullMessageModal = useCallback((message: Message) => {
-    const sections = parseAIResponse(message.content)
-    const allSections = {
-      thinking: !!sections.thinking,
-      userMessage: !!sections.userMessage,
-      planning: !!sections.planning,
-      search: !!sections.search,
-      fileChecks: !!sections.fileChecks?.length,
-      files: !!sections.files?.length,
-      codeBlocks: !!sections.codeBlocks?.length,
-    }
-    setModalExpandedSections((prev) => ({ ...prev, ...Object.fromEntries(Object.entries(allSections).filter(([, v]) => v).map(([k]) => [k, true])) }))
+    const { parts } = parseAIResponse(message.content)
+    const collapsibleTypes = ['thinking', 'commentary', 'userMessage', 'planning', 'search', 'fileChecks', 'files', 'importCard']
+    let collapsibleIndex = 0
+    const initialExpanded: Record<string, boolean> = {}
+    parts.forEach((part) => {
+      if (collapsibleTypes.includes(part.type)) {
+        initialExpanded[`section-${collapsibleIndex}`] = true
+        collapsibleIndex++
+      }
+    })
+    setModalExpandedSections(initialExpanded)
     setFullMessageModal(message)
   }, [])
 
@@ -223,21 +253,23 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
     }))
   }, [])
 
-  const handleCopy = useCallback(async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      onCopy?.(text)
-    } catch (err) {
-      console.error('Failed to copy text: ', err)
-    }
-  }, [onCopy])
+  const handleCopy = useCallback(
+    async (text: string) => {
+      try {
+        await navigator.clipboard.writeText(text)
+        onCopy?.(text)
+      } catch (err) {
+        console.error("Failed to copy text: ", err)
+      }
+    },
+    [onCopy],
+  )
 
   useEffect(() => {
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1]
-      if (lastMessage.role === 'assistant') {
-        const sections = parseAIResponse(lastMessage.content)
-        const codeBlocks = sections.codeBlocks
+      if (lastMessage.role === "assistant") {
+        const { codeBlocks } = parseAIResponse(lastMessage.content)
         if (codeBlocks && codeBlocks.length > 0) {
           onCodeExtracted?.(codeBlocks)
           // Update file history
@@ -260,16 +292,26 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
     }
   }, [messages, onCodeExtracted])
 
-  const handleCodeSelect = useCallback((block: { filename: string; code: string; language: string }) => {
-    const hist = fileHistory[block.filename] || []
-    if (hist.length > 1) {
-      const oldCode = hist[hist.length - 2].code
-      setSelectedOldCode(oldCode)
-    } else {
-      setSelectedOldCode(null)
-    }
-    setSelectedCode(block)
-  }, [fileHistory])
+  const handleCodeSelect = useCallback(
+    (block: { filename: string; code: string; language: string }) => {
+      const hist = fileHistory[block.filename] || []
+      if (hist.length > 1) {
+        const oldCode = hist[hist.length - 2].code
+        setSelectedOldCode(oldCode)
+      } else {
+        setSelectedOldCode(null)
+      }
+      setSelectedCode(block)
+    },
+    [fileHistory],
+  )
+
+  const toggleMessageExpand = (messageId: string) => {
+    setExpandedMessages((prev) => ({
+      ...prev,
+      [messageId]: !prev[messageId],
+    }))
+  }
 
   if (messages.length === 0) {
     return (
@@ -286,17 +328,23 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
         const isEditing = editingId === message.id
 
         // Check if this is a terminal error fix response
-        const isTerminalErrorResponse = message.role === 'assistant' && index > 0 && 
-          messages[index - 1].role === 'user' && 
-          messages[index - 1].content.startsWith('[TERMINAL_ERROR_FIX]')
+        const isTerminalErrorResponse =
+          message.role === "assistant" &&
+          index > 0 &&
+          messages[index - 1].role === "user" &&
+          messages[index - 1].content.startsWith("[TERMINAL_ERROR_FIX]")
 
         const messageWrapperClass = cn(
           "relative max-w-[100%] rounded-lg px-4 py-3",
-          message.role === "user" ? "bg-[#e4e4e4] text-[15px] text-black/75" : "text-[15px] text-black",
+          message.role === "user" ? "bg-[#e4e4e4a8] text-[15px] text-black" : "text-[15px] text-black",
         )
 
         const renderedMessage = (
-          <div className={messageWrapperClass} role={message.role === "user" ? "user-message" : "assistant-message"} aria-label={`${message.role} message`}>
+          <div
+            className={messageWrapperClass}
+            role={message.role === "user" ? "user-message" : "assistant-message"}
+            aria-label={`${message.role} message`}
+          >
             {message.role === "user" ? (
               <div className="space-y-3 w-full">
                 {/* User's uploaded images (existing) */}
@@ -314,7 +362,7 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
                     />
                   </button>
                 ))}
-                
+
                 {/* User's uploaded files (existing) */}
                 {message.uploadedFiles?.map((file, idx) => (
                   <button
@@ -327,18 +375,18 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
                     <span className="truncate">{file.name}</span>
                   </button>
                 ))}
-                
+
                 {/* User message content */}
                 {isEditing ? (
                   <textarea
                     value={editContent}
                     onChange={(e) => setEditContent(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
+                      if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault()
                         onEdit?.(message.id, editContent)
                         setEditingId(null)
-                      } else if (e.key === 'Escape') {
+                      } else if (e.key === "Escape") {
                         setEditingId(null)
                       }
                     }}
@@ -348,19 +396,87 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
                     rows={3}
                   />
                 ) : (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-bold text-black">{children}</strong>,
-                      em: ({ children }: { children?: React.ReactNode }) => <em className="italic text-black/80">{children}</em>,
-                      p: ({ children }: { children?: React.ReactNode }) => <p className="text-sm whitespace-pre-wrap leading-relaxed mb-2">{children}</p>,
-                      ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 space-y-1">{children}</ul>,
-                      ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-5 space-y-1">{children}</ol>,
-                      li: ({ children }: { children?: React.ReactNode }) => <li className="text-sm leading-relaxed">{children}</li>,
-                    }}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
+                  <>
+                    {(() => {
+                      const { parts } = parseUserContent(message.content)
+                      return parts.map((part, partIdx) => {
+                        if (part.type === 'text') {
+                          const isLong = part.content.length > 200
+                          const isExpanded = expandedMessages[message.id] ?? false
+                          return (
+                            <div key={partIdx} className={cn(isLong && !isExpanded && "max-h-32 overflow-hidden")}>
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  strong: ({ children }: { children?: React.ReactNode }) => (
+                                    <strong className="font-bold text-black">{children}</strong>
+                                  ),
+                                  em: ({ children }: { children?: React.ReactNode }) => (
+                                    <em className="italic text-black/80">{children}</em>
+                                  ),
+                                  p: ({ children }: { children?: React.ReactNode }) => (
+                                    <p className="text-sm whitespace-pre-wrap leading-relaxed mb-2">{children}</p>
+                                  ),
+                                  ul: ({ children }: { children?: React.ReactNode }) => (
+                                    <ul className="list-disc pl-5 space-y-1">{children}</ul>
+                                  ),
+                                  ol: ({ children }: { children?: React.ReactNode }) => (
+                                    <ol className="list-decimal pl-5 space-y-1">{children}</ol>
+                                  ),
+                                  li: ({ children }: { children?: React.ReactNode }) => (
+                                    <li className="text-sm leading-relaxed">{children}</li>
+                                  ),
+                                }}
+                              >
+                                {part.content}
+                              </ReactMarkdown>
+                              {isLong && !isExpanded && (
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  onClick={() => toggleMessageExpand(message.id)}
+                                  className="p-0 h-auto text-black/70"
+                                >
+                                  See more
+                                </Button>
+                              )}
+                            </div>
+                          )
+                        } else if (part.type === 'design') {
+                          const sectionKey = `design-${message.id}`
+                          const isOpen = expandedSections[message.id]?.[sectionKey] ?? false
+                          return (
+                            <Collapsible key={partIdx} open={isOpen} onOpenChange={() => toggleSection(message.id, sectionKey)}>
+                              <CollapsibleTrigger asChild>
+                                {/* <Button
+                                  variant="ghost"
+                                  className="w-full text-left flex items-center justify-between px-0 py-2 text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none h-auto group"
+                                  aria-expanded={isOpen}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Palette className="w-4 h-4" />
+                                    <span>{part.content.name}</span>
+                                  </div>
+                                  <ChevronDown
+                                    className={cn(
+                                      "w-4 h-4 transition-transform duration-200",
+                                      isOpen && "rotate-180",
+                                    )}
+                                  />
+                                </Button> */}
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="mt-2">
+                                <SyntaxHighlighter language="json" style={oneDark} customStyle={{ margin: 0 }}>
+                                  {part.content.json}
+                                </SyntaxHighlighter>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          )
+                        }
+                        return null
+                      })
+                    })()}
+                  </>
                 )}
               </div>
             ) : (
@@ -399,7 +515,7 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
                     size="sm"
                     onClick={() => {
                       const sections = parseAIResponse(message.content)
-                      const textToCopy = sections.responseText || message.content
+                      const textToCopy = sections.parts.filter(p => p.type === 'text').map(p => p.content).join('\n') || message.content
                       handleCopy(textToCopy)
                     }}
                     className="h-6 w-6 p-0 hover:bg-[#e4e4e4]"
@@ -524,21 +640,25 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
                 </div>
                 <div className="flex flex-1 overflow-hidden">
                   <div className="w-1/2 flex flex-col border-r border-[#3A3A3E]">
-                    <div className="p-2 bg-red-900/20 text-red-300 font-semibold border-b border-red-500/30">Original</div>
+                    <div className="p-2 bg-red-900/20 text-red-300 font-semibold border-b border-red-500/30">
+                      Original
+                    </div>
                     <div className="flex-1 overflow-auto p-4">
                       {(() => {
-                        const oldLines = selectedOldCode.split('\n')
-                        const newLines = selectedCode.code.split('\n')
+                        const oldLines = selectedOldCode.split("\n")
+                        const newLines = selectedCode.code.split("\n")
                         const newSet = new Set(newLines)
                         return oldLines.map((line, i) => (
                           <div
                             key={i}
                             className={cn(
-                              'flex items-start text-sm leading-relaxed font-mono text-white/80 mb-0.5',
-                              !newSet.has(line) && 'bg-red-900/30 border-l-2 border-red-500 pl-2'
+                              "flex items-start text-sm leading-relaxed font-mono text-white/80 mb-0.5",
+                              !newSet.has(line) && "bg-red-900/30 border-l-2 border-red-500 pl-2",
                             )}
                           >
-                            <span className="w-8 text-right pr-2 text-xs text-gray-500 select-none flex-shrink-0">{i + 1}</span>
+                            <span className="w-8 text-right pr-2 text-xs text-gray-500 select-none flex-shrink-0">
+                              {i + 1}
+                            </span>
                             <span className="flex-1 whitespace-pre">{line}</span>
                           </div>
                         ))
@@ -546,21 +666,25 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
                     </div>
                   </div>
                   <div className="w-1/2 flex flex-col">
-                    <div className="p-2 bg-green-900/20 text-green-300 font-semibold border-b border-green-500/30">Updated</div>
+                    <div className="p-2 bg-green-900/20 text-green-300 font-semibold border-b border-green-500/30">
+                      Updated
+                    </div>
                     <div className="flex-1 overflow-auto p-4">
                       {(() => {
-                        const oldLines = selectedOldCode.split('\n')
-                        const newLines = selectedCode.code.split('\n')
+                        const oldLines = selectedOldCode.split("\n")
+                        const newLines = selectedCode.code.split("\n")
                         const oldSet = new Set(oldLines)
                         return newLines.map((line, i) => (
                           <div
                             key={i}
                             className={cn(
-                              'flex items-start text-sm leading-relaxed font-mono text-white/80 mb-0.5',
-                              !oldSet.has(line) && 'bg-green-900/30 border-l-2 border-green-500 pl-2'
+                              "flex items-start text-sm leading-relaxed font-mono text-white/80 mb-0.5",
+                              !oldSet.has(line) && "bg-green-900/30 border-l-2 border-green-500 pl-2",
                             )}
                           >
-                            <span className="w-8 text-right pr-2 text-xs text-gray-500 select-none flex-shrink-0">{i + 1}</span>
+                            <span className="w-8 text-right pr-2 text-xs text-gray-500 select-none flex-shrink-0">
+                              {i + 1}
+                            </span>
                             <span className="flex-1 whitespace-pre">{line}</span>
                           </div>
                         ))
@@ -585,11 +709,7 @@ export function MessageList({ messages, onArtifactClick, onCodeExtracted, onCopy
                   </button>
                 </div>
                 <div className="flex-1 overflow-auto p-4">
-                  <SyntaxHighlighter
-                    language={selectedCode.language}
-                    style={oneDark}
-                    customStyle={{ margin: 0 }}
-                  >
+                  <SyntaxHighlighter language={selectedCode.language} style={oneDark} customStyle={{ margin: 0 }}>
                     {selectedCode.code}
                   </SyntaxHighlighter>
                 </div>
@@ -657,508 +777,254 @@ function AIMessageContent({
   onArtifactClick?: (artifactId: string) => void
   onCodeSelect: (block: { filename: string; code: string; language: string }) => void
   onOpenFullModal: () => void
-  onOpenPreview?: (version: string, project: string, codeBlocks: Array<{ filename: string; code: string; language: string }>) => void
+  onOpenPreview?: (
+    version: string,
+    project: string,
+    codeBlocks: Array<{ filename: string; code: string; language: string }>,
+  ) => void
 }) {
-  const sections = parseAIResponse(message.content)
+  const { parts, codeBlocks } = parseAIResponse(message.content)
 
   const markdownComponents = {
-    strong: ({ children }: { children?: React.ReactNode }) => <strong className="font-bold text-black bg-[#e4e4e4] px-1.5 py-1 rounded text-sm">{children}</strong>,
+    strong: ({ children }: { children?: React.ReactNode }) => (
+      <strong className="font-bold text-black bg-[#e4e4e4] px-1.5 py-1 rounded text-sm">{children}</strong>
+    ),
     em: ({ children }: { children?: React.ReactNode }) => <em className="italic text-black/80">{children}</em>,
-    p: ({ children }: { children?: React.ReactNode }) => <p className="text-sm leading-relaxed whitespace-pre-wrap mb-2">{children}</p>,
+    p: ({ children }: { children?: React.ReactNode }) => (
+      <p className="text-sm leading-relaxed whitespace-pre-wrap mb-2">{children}</p>
+    ),
     ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 space-y-1 mb-2">{children}</ul>,
-    ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-5 space-y-1 mb-2">{children}</ol>,
+    ol: ({ children }: { children?: React.ReactNode }) => (
+      <ol className="list-decimal pl-5 space-y-1 mb-2">{children}</ol>
+    ),
     li: ({ children }: { children?: React.ReactNode }) => <li className="text-sm leading-relaxed">{children}</li>,
-    code: ({ children, className }: { children?: React.ReactNode; className?: string }) => <code className={cn("bg-gray-100 px-1 py-0.5 rounded text-xs font-mono", className)}>{children}</code>,
+    code: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
+      <code className={cn("bg-gray-100 px-1 py-0.5 rounded text-xs font-mono", className)}>{children}</code>
+    ),
+  }
+
+  const getTitle = (type: string, content: any) => {
+    switch (type) {
+      case 'thinking':
+        return 'Thinking'
+      case 'commentary':
+        return 'Commentary'
+      case 'userMessage':
+        return 'Read'
+      case 'planning':
+        return 'Planning'
+      case 'search':
+        return 'Search Results'
+      case 'fileChecks':
+        return `File Checks ${content.length}`
+      case 'files':
+        return `Files ${content.length}`
+      case 'importCard':
+        return 'Importing GitHub Repository'
+      default:
+        return type.charAt(0).toUpperCase() + type.slice(1)
+    }
+  }
+
+  const getIcon = (type: string) => {
+    switch (type) {
+      case 'thinking':
+      case 'commentary':
+        return Brain
+      case 'userMessage':
+        return FileText
+      case 'search':
+        return Search
+      case 'planning':
+        return List
+      case 'fileChecks':
+        return Bug
+      case 'files':
+        return Folder
+      case 'importCard':
+        return Globe
+      default:
+        return FileText
+    }
+  }
+
+  const renderPartContent = (type: string, content: any) => {
+    switch (type) {
+      case 'thinking':
+      case 'commentary':
+      case 'userMessage':
+      case 'planning':
+      case 'search':
+        return <div className="p-1 "><span className="text-[14px] text-[#2e2e2e]">{content}</span></div>
+      case 'fileChecks':
+        return (
+          <div className="space-y-2 p-2 border rounded-sm bg-red-50/50">
+            {content.map((check: { file: string; error: string; fix: string; status: string }, idx: number) => (
+              <div key={idx} className="bg-white p-3 rounded border-l-4 border-red-400 space-y-1">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                  <span className="font-mono text-sm text-red-800">{check.file}</span>
+                </div>
+                <p className="text-xs text-red-700">
+                  <strong>Error:</strong> {check.error}
+                </p>
+                {check.fix && (
+                  <p className="text-xs text-green-700">
+                    <strong>Fix:</strong> {check.fix}
+                  </p>
+                )}
+                <p className="text-xs text-gray-600">
+                  <strong>Status:</strong>{" "}
+                  <span
+                    className={cn("font-semibold", check.status === "FIXED" ? "text-green-600" : "text-yellow-600")}
+                  >
+                    {check.status}
+                  </span>
+                </p>
+              </div>
+            ))}
+          </div>
+        )
+      case 'files':
+        return (
+          <div className="space-y-2 p-1 bg-[#bebaba18] border w-full rounded-sm shadow-[0px_0px_10px_0px_white]">
+            <h1 className="font-light flex items-center gap-[5px] ml-2 mt-1"><List className="h-4 w-4"/>Plan files</h1>
+            {content.map((file: { name: string; path: string; status: string }, idx: number) => (
+              <div 
+                key={idx} 
+                className="flex items-center gap-2 text-sm rounded-sm cursor-pointer hover:bg-[#e4e4e48c] py-1.5 px-3 hover:underline"
+                onClick={onOpenFullModal}
+                role="button"
+                tabIndex={0}
+                aria-label={`Open full message for file ${file.path}`}
+              >
+                <span className="font-mono text-xs text-black/70">{file.path}</span>
+              </div>
+            ))}
+          </div>
+        )
+      case 'importCard':
+        return (
+          <div className="mt-1 bg-[#e4e4e4] rounded-b-md px-3 py-2">
+            <div className="flex items-center gap-2 text-green-600">
+              <CheckCircle2 className="w-5 h-5" />
+              <span>Import {content.repo}</span>
+            </div>
+          </div>
+        )
+      default:
+        return null
+    }
   }
 
   return (
     <div className="space-y-3 w-full">
-      {/* Thinking Button (existing) */}
-      {sections.thinking && (
-        <Collapsible
-          open={expandedSections.thinking ?? false}
-          onOpenChange={() => onToggleSection('thinking')}
-        >
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
-              aria-expanded={expandedSections.thinking}
-              aria-controls={`thinking-${message.id}`}
-            >
-              <div className="relative w-4 h-4">
-                <Brain
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-100 translate-y-0",
-                    expandedSections.thinking ? "opacity-0 -translate-y-1" : "",
-                    "group-hover:opacity-0 group-hover:-translate-y-1",
-                  )}
-                  aria-hidden="true"
-                />
-                <ChevronDown
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-0 translate-y-1",
-                    expandedSections.thinking ? "opacity-100 translate-y-0" : "",
-                    "group-hover:opacity-100 group-hover:translate-y-0",
-                    expandedSections.thinking && "rotate-180",
-                  )}
-                  aria-hidden="true"
-                />
-              </div>
-              <span>Thinking</span>
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2">
-              <div className="p-1 ">
-                <span className="text-[14px] text-[#2e2e2e]">{sections.thinking}</span>
-              </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-      {/* User Message Button (existing, renamed to "Read" for understanding) */}
-      {sections.userMessage && (
-        <Collapsible
-          open={expandedSections.userMessage ?? false}
-          onOpenChange={() => onToggleSection('userMessage')}
-        >
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
-              aria-expanded={expandedSections.userMessage}
-              aria-controls={`userMessage-${message.id}`}
-            >
-              <div className="relative w-4 h-4">
-                <FileText
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-100 translate-y-0",
-                    expandedSections.userMessage ? "opacity-0 -translate-y-1" : "",
-                    "group-hover:opacity-0 group-hover:-translate-y-1",
-                  )}
-                  aria-hidden="true"
-                />
-                <ChevronDown
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-0 translate-y-1",
-                    expandedSections.userMessage ? "opacity-100 translate-y-0" : "",
-                    "group-hover:opacity-100 group-hover:translate-y-0",
-                    expandedSections.userMessage && "rotate-180",
-                  )}
-                  aria-hidden="true"
-                />
-              </div>
-              <span>Read</span>
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2">
-              <div className="p-1 ">
-                <span className="text-[14px] text-[#2e2e2e]">{sections.userMessage}</span>
-              </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      {/* Planning Button (existing) */}
-      {sections.planning && (
-        <Collapsible
-          open={expandedSections.planning ?? false}
-          onOpenChange={() => onToggleSection('planning')}
-        >
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
-              aria-expanded={expandedSections.planning}
-              aria-controls={`planning-${message.id}`}
-            >
-              <div className="relative w-4 h-4">
-                <List
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-100 translate-y-0",
-                    expandedSections.planning ? "opacity-0 -translate-y-1" : "",
-                    "group-hover:opacity-0 group-hover:-translate-y-1",
-                  )}
-                  aria-hidden="true"
-                />
-                <ChevronDown
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-0 translate-y-1",
-                    expandedSections.planning ? "opacity-100 translate-y-0" : "",
-                    "group-hover:opacity-100 group-hover:translate-y-0",
-                    expandedSections.planning && "rotate-180",
-                  )}
-                  aria-hidden="true"
-                />
-              </div>
-              <span>Planning</span>
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2">
-              <div className="p-1 ">
-                <span className="text-[14px] text-[#2e2e2e]">{sections.planning}</span>
-              </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      {/* Search Button (existing) */}
-      {sections.search && (
-        <Collapsible
-          open={expandedSections.search ?? false}
-          onOpenChange={() => onToggleSection('search')}
-        >
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
-              aria-expanded={expandedSections.search}
-              aria-controls={`search-${message.id}`}
-            >
-              <div className="relative w-4 h-4">
-                <FileText
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-100 translate-y-0",
-                    expandedSections.search ? "opacity-0 -translate-y-1" : "",
-                    "group-hover:opacity-0 group-hover:-translate-y-1",
-                  )}
-                  aria-hidden="true"
-                />
-                <ChevronDown
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-0 translate-y-1",
-                    expandedSections.search ? "opacity-100 translate-y-0" : "",
-                    "group-hover:opacity-100 group-hover:translate-y-0",
-                    expandedSections.search && "rotate-180",
-                  )}
-                  aria-hidden="true"
-                />
-              </div>
-              <span>Search Results</span>
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2">
-              <div className="p-1 ">
-                <span className="text-[14px] text-[#2e2e2e] font-light">{sections.search}</span>
-              </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      {/* New: File Checks Button */}
-      {sections.fileChecks && sections.fileChecks.length > 0 && (
-        <Collapsible
-          open={expandedSections.fileChecks ?? false}
-          onOpenChange={() => onToggleSection('fileChecks')}
-        >
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
-              aria-expanded={expandedSections.fileChecks}
-              aria-controls={`fileChecks-${message.id}`}
-            >
-              <div className="relative w-4 h-4">
-                <Bug
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-100 translate-y-0",
-                    expandedSections.fileChecks ? "opacity-0 -translate-y-1" : "",
-                    "group-hover:opacity-0 group-hover:-translate-y-1",
-                  )}
-                  aria-hidden="true"
-                />
-                <ChevronDown
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-0 translate-y-1",
-                    expandedSections.fileChecks ? "opacity-100 translate-y-0" : "",
-                    "group-hover:opacity-100 group-hover:translate-y-0",
-                    expandedSections.fileChecks && "rotate-180",
-                  )}
-                  aria-hidden="true"
-                />
-              </div>
-              <span>File Checks {sections.fileChecks.length}</span>
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2">
-            <div className="space-y-2 p-2 border rounded-sm bg-red-50/50">
-              {sections.fileChecks.map((check, idx) => (
-                <div key={idx} className="bg-white p-3 rounded border-l-4 border-red-400 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                    <span className="font-mono text-sm text-red-800">{check.file}</span>
-                  </div>
-                  <p className="text-xs text-red-700"><strong>Error:</strong> {check.error}</p>
-                  {check.fix && <p className="text-xs text-green-700"><strong>Fix:</strong> {check.fix}</p>}
-                  <p className="text-xs text-gray-600"><strong>Status:</strong> <span className={cn("font-semibold", check.status === "FIXED" ? "text-green-600" : "text-yellow-600")}>{check.status}</span></p>
+      {parts.map((part, idx) => {
+        if (part.type === 'text') {
+          return (
+            <div key={idx} className="prose prose-sm max-w-none text-black/75">
+              {isStreaming && parts.filter(p => p.type === 'text').every(p => !p.content) ? (
+                <div className="flex items-center gap-2 text-muted-foreground" aria-live="polite">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Generating response...</span>
                 </div>
-              ))}
+              ) : (
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {part.content}
+                </ReactMarkdown>
+              )}
             </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      {/* Response Text with Markdown for highlighting/organization - now without inline code blocks */}
-      {sections.responseText && (
-        <div className="prose prose-sm max-w-none text-black/75">
-          {isStreaming && !sections.responseText ? (
-            <div className="flex items-center gap-2 text-muted-foreground" aria-live="polite">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">Generating response...</span>
+          )
+        } else if (part.type === 'previewButton') {
+          return (
+            <div key={idx} className="mt-4">
+              <Button
+                onClick={() =>
+                  onOpenPreview?.(
+                    part.content.version,
+                    part.content.project,
+                    codeBlocks,
+                  )
+                }
+                className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
+              >
+                <div className="relative w-4 h-4">
+                  <Globe
+                    className={cn(
+                      "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
+                      "opacity-100 translate-y-0",
+                      "group-hover:opacity-0 group-hover:-translate-y-1",
+                    )}
+                    aria-hidden="true"
+                  />
+                  <ChevronRight
+                    className={cn(
+                      "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
+                      "opacity-0 translate-y-1",
+                      "group-hover:opacity-100 group-hover:translate-y-0",
+                    )}
+                    aria-hidden="true"
+                  />
+                </div>
+                {part.content.text}
+              </Button>
             </div>
-          ) : (
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={markdownComponents}
-            >
-              {sections.responseText}
-            </ReactMarkdown>
-          )}
-          {isStreaming && sections.responseText && (
-            <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1" />
-          )}
-        </div>
-      )}
+          )
+        } else {
+          // Collapsible types
+          const collapsibleTypes = ['thinking', 'commentary', 'userMessage', 'planning', 'search', 'fileChecks', 'files', 'importCard']
+          if (!collapsibleTypes.includes(part.type)) return null
 
-      {/* Files Section (existing, but uncommented and always open by default if present) */}
-      {sections.files && sections.files.length > 0 && (
-        <Collapsible
-          open={expandedSections.files ?? true}
-          onOpenChange={() => onToggleSection('files')}
-        >
-          <CollapsibleTrigger asChild>
-            {/* <Button
-              variant="ghost"
-              size="sm"
-              className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
-              aria-expanded={expandedSections.files}
-              aria-controls={`files-${message.id}`}
-            >
-              <div className="relative w-4 h-4">
-                <Folder
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-100 translate-y-0",
-                    expandedSections.files ? "opacity-0 -translate-y-1" : "",
-                    "group-hover:opacity-0 group-hover:-translate-y-1",
-                  )}
-                  aria-hidden="true"
-                />
-                <ChevronDown
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-0 translate-y-1",
-                    expandedSections.files ? "opacity-100 translate-y-0" : "",
-                    "group-hover:opacity-100 group-hover:translate-y-0",
-                    expandedSections.files && "rotate-180",
-                  )}
-                  aria-hidden="true"
-                />
-              </div>
-              <span>Files {sections.files.length}</span>
-            </Button> */}
-          </CollapsibleTrigger>
-       <Collapsible
-          open={expandedSections.codeBlocks ?? false}
-          onOpenChange={() => onToggleSection('codeBlocks')}
-        >
-          <CollapsibleTrigger asChild>
-            {/* <Button
-              variant="ghost"
-              size="sm"
-              className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
-              aria-expanded={expandedSections.codeBlocks}
-              aria-controls={`codeBlocks-${message.id}`}
-            >
-              <div className="relative w-4 h-4">
-<svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={cn(
-        "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-        "opacity-100 translate-y-0",
-        expandedSections?.codeBlocks ? "opacity-0 -translate-y-1" : "",
-        "group-hover:opacity-0 group-hover:-translate-y-1",
-      )}
-      aria-hidden="true"
-    >
-      <path
-        d="M2 1h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5.414L2 13.586A1 1 0 0 1 1 12.414V3a1 1 0 0 1 1-1Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-                <ChevronDown
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-0 translate-y-1",
-                    expandedSections.codeBlocks ? "opacity-100 translate-y-0" : "",
-                    "group-hover:opacity-100 group-hover:translate-y-0",
-                    expandedSections.codeBlocks && "rotate-180",
-                  )}
-                  aria-hidden="true"
-                />
-              </div>
-              <span>Commentary</span>
-            </Button> */}
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2">
-              <div className="p-1 ">
-                <span className="text-[14px] text-[#2e2e2e]">{sections.commentary}</span>
-              </div>
-          </CollapsibleContent>
-        </Collapsible>
-          <CollapsibleContent className="mt-2">
-                {/* <div className="space-y-2 p-1 bg-white w-full rounded-sm shadow-[0px_0px_10px_0px_white]">
-                  <h1 className="font-light flex items-center gap-[5px] ml-2 mt-1"><List className="h-4 w-4"/>Plan</h1>
-                  {sections.files.map((file, idx) => (
-                    <div 
-                      key={idx} 
-                      className="flex items-center gap-2 text-sm rounded-sm cursor-pointer hover:bg-[#e4e4e48c] py-1.5 px-3 hover:underline"
-                      onClick={onOpenFullModal}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Open full message for file ${file.path}`}
-                    >
-                      <span className="font-mono text-xs text-black/70">{file.path}</span>
-                    </div>
-                  ))}
-                </div> */}
-          </CollapsibleContent>
-        </Collapsible>
-      )}
+          // Calculate the collapsible index based on previous collapsibles
+          const collapsibleIndex = parts.slice(0, idx).filter(p => collapsibleTypes.includes(p.type)).length
+          const sectionKey = `section-${collapsibleIndex}`
+          const isOpen = expandedSections[sectionKey] ?? false
+          const title = getTitle(part.type, part.content)
+          const Icon = getIcon(part.type)
 
-
-      {/* New: Import Card Section */}
-      {sections.importCard && (
-        <Collapsible
-          open={expandedSections.importCard ?? true}
-          onOpenChange={() => onToggleSection('importCard')}
-        >
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-[#e4e4e4] hover:bg-[#d4d4d4] rounded-md px-3 py-2 h-auto group"
-              aria-expanded={expandedSections.importCard}
-              aria-controls={`importCard-${message.id}`}
-            >
-              <ChevronDown
-                className={cn(
-                  "w-4 h-4 transition-transform duration-200 ease-in-out",
-                  expandedSections.importCard ? "rotate-180" : "rotate-0"
-                )}
-                aria-hidden="true"
-              />
-              <span>Importing GitHub Repository</span>
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-1 bg-[#e4e4e4] rounded-b-md px-3 py-2">
-            <div className="flex items-center gap-2 text-green-600">
-              <CheckCircle2 className="w-5 h-5" />
-              <span>Import {sections.importCard.repo}</span>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      {/* New: Code Artifacts Section */}
-      {sections.codeBlocks && sections.codeBlocks.length > 0 && (
-        <Collapsible
-          open={expandedSections.codeBlocks ?? false}
-          onOpenChange={() => onToggleSection('codeBlocks')}
-        >
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
-              aria-expanded={expandedSections.codeBlocks}
-              aria-controls={`codeBlocks-${message.id}`}
-            >
-              <div className="relative w-4 h-4">
-                <Code
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-100 translate-y-0",
-                    expandedSections.codeBlocks ? "opacity-0 -translate-y-1" : "",
-                    "group-hover:opacity-0 group-hover:-translate-y-1",
-                  )}
-                  aria-hidden="true"
-                />
-                <ChevronDown
-                  className={cn(
-                    "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
-                    "opacity-0 translate-y-1",
-                    expandedSections.codeBlocks ? "opacity-100 translate-y-0" : "",
-                    "group-hover:opacity-100 group-hover:translate-y-0",
-                    expandedSections.codeBlocks && "rotate-180",
-                  )}
-                  aria-hidden="true"
-                />
-              </div>
-              <span>Code Artifacts {sections.codeBlocks.length}</span>
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2">
-            <div className="space-y-3">
-              {sections.codeBlocks.map((block, idx) => (
-                <div
-                  key={idx}
-                  className="cursor-pointer bg-[#ffffff] rounded-md border border-[#e4e4e496]"
-                  onClick={() => onCodeSelect(block)}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`View full code for ${block.filename}`}
+          return (
+            <Collapsible key={idx} open={isOpen} onOpenChange={() => onToggleSection(sectionKey)}>
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
+                  aria-expanded={isOpen}
+                  aria-controls={`${part.type}-${message.id}-${collapsibleIndex}`}
                 >
-                  <div className="p-3 border-b border-gray-200 bg-[#e4e4e496]">
-                    <h3 className="font-mono text-sm font-semibold text-black/80 truncate">{block.filename}</h3>
+                  <div className="relative w-4 h-4">
+                    <Icon
+                      className={cn(
+                        "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
+                        "opacity-100 translate-y-0",
+                        isOpen ? "opacity-0 -translate-y-1" : "",
+                        "group-hover:opacity-0 group-hover:-translate-y-1",
+                      )}
+                      aria-hidden="true"
+                    />
+                    <ChevronDown
+                      className={cn(
+                        "absolute inset-0 w-4 h-4 transition-all duration-200 ease-in-out",
+                        "opacity-0 translate-y-1",
+                        isOpen ? "opacity-100 translate-y-0" : "",
+                        "group-hover:opacity-100 group-hover:translate-y-0",
+                        isOpen && "rotate-180",
+                      )}
+                      aria-hidden="true"
+                    />
                   </div>
-                  <CardContent className="max-h-[150px] overflow-y-auto">
-                    <SyntaxHighlighter
-                      language={block.language}
-                      style={oneLight}
-                      customStyle={{ margin: 0, padding: "8px 0", borderRadius: 0 }}
-                    >
-                      {block.code}
-                    </SyntaxHighlighter>
-                  </CardContent>
-                </div>
-              ))}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-
-      {/* New: Preview Button */}
-      {sections.previewButton && (
-        <div className="mt-4">
-          <Button
-            onClick={() => onOpenPreview?.(sections.previewButton!.version, sections.previewButton!.project, sections.codeBlocks || [])}
-            className="w-full"
-          >
-            {sections.previewButton.text}
-          </Button>
-        </div>
+                  <span>{title}</span>
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2">
+                {renderPartContent(part.type, part.content)}
+              </CollapsibleContent>
+            </Collapsible>
+          )
+        }
+      })}
+      {isStreaming && parts.some(p => p.type === 'text' && p.content) && (
+        <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1" />
       )}
     </div>
   )

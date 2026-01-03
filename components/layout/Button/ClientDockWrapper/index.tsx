@@ -20,9 +20,9 @@ export default function ClientDockWrapper() {
   return (
     <div>
       <DefaultDemo />
-      <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50">
+      {/* <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50">
         <DockDemo />
-      </div>
+      </div> */}
     </div>
   )
 }

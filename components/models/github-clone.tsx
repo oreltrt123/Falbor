@@ -97,7 +97,7 @@ export function GithubClone() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="w-full border h-8 border-[#dbd9d965] rounded-full bg-white text-black px-3 py-2 flex items-center justify-between hover:border-[#ff8c001f]"
+        className="w-full border h-8 cursor-pointer border-[#dbd9d965] rounded-full bg-white text-black px-3 py-2 flex items-center justify-between hover:border-[#c1603c56]"
       >
         <span className="flex items-center gap-2">
           <Github className="w-4 h-4" />

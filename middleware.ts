@@ -10,23 +10,20 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
     req.nextUrl.pathname.startsWith("/api/stripe/webhook") ||
     req.nextUrl.pathname.startsWith("/deploy/")
   ) {
-    console.log("[v0] Middleware: Skipping auth for:", req.nextUrl.pathname)
+    console.log("Middleware: Skipping auth for:", req.nextUrl.pathname)
     return NextResponse.next()
   }
 
   const hostname = req.headers.get("host") || ""
-  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz"
+  const baseDomain = process.env.NODE_ENV === "development" ? "lvh.me" : (process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz")
+  const hostWithoutPort = hostname.includes(':') ? hostname.split(':')[0] : hostname
 
-  if (process.env.NODE_ENV === "production" && hostname.includes(".")) {
-    const subdomain = hostname.split(".")[0]
-
-    // Skip if it's www or the base domain itself
-    if (subdomain !== "www" && hostname !== baseDomain) {
-      // Rewrite to /deploy/[subdomain]
+  if (hostWithoutPort.endsWith('.' + baseDomain)) {
+    const subdomain = hostWithoutPort.slice(0, -(baseDomain.length + 1))
+    if (subdomain && subdomain !== "www") {
       const url = req.nextUrl.clone()
       url.pathname = `/deploy/${subdomain}${url.pathname}`
-
-      console.log("[v0] Subdomain detected:", subdomain, "-> rewriting to:", url.pathname)
+      console.log("Subdomain detected:", subdomain, "-> rewriting to:", url.pathname)
       return NextResponse.rewrite(url)
     }
   }
@@ -37,7 +34,7 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 
   if (process.env.NODE_ENV === "development") {
     const { userId } = await auth()
-    console.log("[v0] Middleware: Auth check for", req.nextUrl.pathname, "- User:", userId || "Anonymous")
+    console.log("Middleware: Auth check for", req.nextUrl.pathname, "- User:", userId || "Anonymous")
   }
 
   return NextResponse.next()

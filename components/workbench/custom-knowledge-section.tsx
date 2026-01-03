@@ -100,21 +100,19 @@ export function CustomKnowledgeSection() {
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-black/80 mb-2">Prompt Name</label>
-            <input
+            <Input
               value={promptName}
               onChange={(e) => setPromptName(e.target.value)}
               placeholder="e.g., Design Preferences"
-              className="px-2 py-1 w-full bg-[#e4e4e4b4] placeholder:text-black border-none shadow-none rounded-md text-black text-sm focus:border-none focus:outline-none"
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-black/80 mb-2">Custom Instructions</label>
-            <textarea
+            <Textarea
               value={promptContent}
               onChange={(e) => setPromptContent(e.target.value)}
               placeholder="e.g., Always use dark mode, prefer Tailwind CSS, create mobile-first designs..."
-              className="px-2 min-h-[300px] py-1 w-full bg-[#e4e4e4b4] placeholder:text-black border-none shadow-none rounded-md text-black text-sm focus:border-none focus:outline-none"
             />
           </div>
 

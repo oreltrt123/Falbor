@@ -272,11 +272,10 @@ export default function ProjectSettings({ projectId }: ProjectSettingsProps) {
               </div>
               <h3 className="text-black text-sm font-semibold">Description</h3>
             </div>
-            <textarea
+            <Textarea
               value={editing ? (tempProject?.description || '') : (project.description || '')}
               onChange={(e) => updateTempField('description', e.target.value)}
               placeholder="Enter project description..."
-              className="mb-2 border-none w-full p-2 bg-white rounded-sm resize-none focus:outline-none focus:ring-0"
               disabled={!editing}
               rows={3}
             />

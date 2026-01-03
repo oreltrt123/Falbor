@@ -1,4 +1,5 @@
 // components/workbench/code-tab.tsx
+// No changes needed.
 import { TabsContent } from "@/components/ui/tabs"
 import { FileTree } from "@/components/workbench/file/file-tree" // Already separate
 import { SidebarTabs } from "./sidebar-tabs"
@@ -67,7 +68,7 @@ export function CodeTab({
   }
 
   return (
-    <TabsContent value="code" className="flex-1 m-0 flex overflow-hidden rounded-bl-3xl border-t border-[#4444442d] mt-[-5px]">
+    <div className="flex-1 flex overflow-hidden">
       <div className="w-64 overflow-y-hidden border border-[#4444442d] border-b-0 border-l-0 border-t-0 flex flex-col">
         <SidebarTabs sidebarView={sidebarView} setSidebarView={setSidebarView} />
         {sidebarView === "files" && (
@@ -103,6 +104,6 @@ export function CodeTab({
         monacoRef={monacoRef}
         editorOptions={editorOptions}
       />
-    </TabsContent>
+    </div>
   )
 }

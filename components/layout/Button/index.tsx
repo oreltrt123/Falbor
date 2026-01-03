@@ -9,19 +9,19 @@ const sampleApps = [
   {
     id: "pricing",
     name: "Pricing",
-    icon: "/icons/pricing.png",
+    icon: "https://uploads-ssl.webflow.com/5f7081c044fb7b3321ac260e/5f70853d44d99641ce69afeb_reminders.png",
     href: "/pricing",
   },
   {
     id: "about",
     name: "About",
-    icon: "/icons/about.png",
+    icon: "https://uploads-ssl.webflow.com/5f7081c044fb7b3321ac260e/5f70853c849ec3735b52cef9_notes.png",
     href: "/about",
   },
   {
     id: "projects",
     name: "Projects",
-    icon: "/icons/projects.png",
+    icon: "https://uploads-ssl.webflow.com/5f7081c044fb7b3321ac260e/5f70853943597517f128b9b4_launchpad.png",
     href: "/projects",
   },
 ]

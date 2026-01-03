@@ -1,9 +1,19 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef, useEffect } from "react"
-import { ChevronRight, ChevronDown, File, Folder, FolderOpen, Plus, Edit, Trash, Lock, Unlock } from "lucide-react"
+import {
+  ChevronRight,
+  ChevronDown,
+  File,
+  Folder,
+  FolderOpen,
+  Plus,
+  Edit,
+  Trash,
+  Lock,
+  Unlock,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 
@@ -42,6 +52,15 @@ interface ContextMenuState {
   node: FileNode | null
 }
 
+// Sort children: folders first, then files, both alphabetically
+function sortNodes(nodes: FileNode[]): FileNode[] {
+  return nodes.sort((a, b) => {
+    if (a.type === "folder" && b.type === "file") return -1
+    if (a.type === "file" && b.type === "folder") return 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
 function buildFileTree(
   files: Array<{
     path: string
@@ -56,19 +75,21 @@ function buildFileTree(
   const root: FileNode[] = []
 
   for (const file of files) {
-    const parts = file.path.split("/")
+    const parts = file.path.split("/").filter(Boolean) // Prevent empty parts
     let currentLevel = root
 
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]
-      const isFile = i === parts.length - 1 && file.type !== "folder"
+      const isLast = i === parts.length - 1
+      const isFile = isLast && file.type !== "folder"
 
       let existingNode = currentLevel.find((node) => node.name === part)
 
       if (!existingNode) {
+        const fullPath = parts.slice(0, i + 1).join("/")
         existingNode = {
           name: part,
-          path: parts.slice(0, i + 1).join("/"),
+          path: fullPath || part, // Handle root-level files
           type: isFile ? "file" : "folder",
           isLocked: file.isLocked || false,
           additions: isFile ? file.additions : undefined,
@@ -86,7 +107,16 @@ function buildFileTree(
     }
   }
 
-  return root
+  // Recursively sort all levels
+  function recursivelySort(node: FileNode): void {
+    if (node.children) {
+      node.children = sortNodes(node.children)
+      node.children.forEach(recursivelySort)
+    }
+  }
+
+  root.forEach(recursivelySort)
+  return sortNodes(root)
 }
 
 function TreeNode({
@@ -104,9 +134,11 @@ function TreeNode({
   onContextMenu: (e: React.MouseEvent, node: FileNode) => void
   projectId: string
 }) {
-  const [isOpen, setIsOpen] = useState(level < 2)
+  const [isOpen, setIsOpen] = useState(level < 2) // Auto-expand top 2 levels
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+
     if (node.isLocked) return
 
     if (node.type === "folder") {
@@ -122,56 +154,56 @@ function TreeNode({
     onContextMenu(e, node)
   }
 
-  const indent = `${level * 12 + 8}px`
+  const indent = level * 16 // Increased indent for better hierarchy
 
   return (
     <div>
       <div
         className={cn(
-          "flex items-center gap-1 pl-0 px-1 pr-2 py-[3px] mb-1 hover:bg-[#e4e4e4] cursor-pointer text-[13px] relative group rounded-sm",
-          selectedPath === node.path && "font-bold hover:bg-white",
+          "flex items-center gap-1 pl-0 px-1 pr-2 py-[4px] hover:bg-[#e4e4e4a8] cursor-pointer text-[13px] relative group",
+          selectedPath === node.path && " bg-[#e4e4e4a8]",
           node.isLocked && "opacity-50",
         )}
-        style={{ 
-          marginLeft: indent,
-          width: `calc(100% - ${indent})`
-        }}
+        style={{ paddingLeft: `${indent + 8}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       >
         {node.type === "folder" ? (
           <>
             {isOpen ? (
-              <>
-                <ChevronDown className="w-4 h-4 text-black" />
-              </>
+              <ChevronDown className="w-4 h-4 shrink-0" />
             ) : (
-              <>
-                <ChevronRight className="w-4 h-4 text-black" />
-              </>
+              <ChevronRight className="w-4 h-4 shrink-0" />
             )}
+            {/* {isOpen ? (
+              <FolderOpen className="w-4 h-4 shrink-0 text-black/80" />
+            ) : (
+              <Folder className="w-4 h-4 shrink-0 text-black/80" />
+            )} */}
           </>
         ) : (
           <>
-            <div className="w-4" />
-            <File className="w-4 h-4 text-black" />
+            <div className="w-4 shrink-0" />
+            <File className="w-4 h-4 shrink-0 text-foreground/80" />
           </>
         )}
-        <span className="truncate text-black flex-1">{node.name}</span>
+        <span className="truncate flex-1">{node.name}</span>
+
         {node.type === "file" && ((node.additions || 0) > 0 || (node.deletions || 0) > 0) && (
-          <div className="flex items-center gap-1 text-[10px] ml-auto">
-            {(node.additions || 0) > 0 && <span className="text-green-500">+{node.additions}</span>}
-            {(node.deletions || 0) > 0 && <span className="text-red-500">-{node.deletions}</span>}
+          <div className="flex items-center gap-1 text-[10px] opacity-80">
+            {(node.additions || 0) > 0 && <span className="text-green-600">+{node.additions}</span>}
+            {(node.deletions || 0) > 0 && <span className="text-red-600">-{node.deletions}</span>}
           </div>
         )}
-        {node.isLocked && <Lock className="w-3 h-3 ml-1 text-red-400" />}
+
+        {node.isLocked && <Lock className="w-3 h-3 text-red-500 ml-1 shrink-0" />}
       </div>
 
-      {node.type === "folder" && isOpen && !node.isLocked && node.children && (
+      {node.type === "folder" && isOpen && node.children && (
         <div>
           {node.children.map((child, index) => (
             <TreeNode
-              key={index}
+              key={`${child.path}-${index}`}
               node={child}
               onFileSelect={onFileSelect}
               selectedPath={selectedPath}
@@ -204,20 +236,22 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
       document.addEventListener("mousedown", handleClickOutside)
     }
 
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside)
-    }
+    return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [contextMenu.show])
 
   const handleContextMenu = (e: React.MouseEvent, node: FileNode) => {
     setContextMenu({ show: true, x: e.clientX, y: e.clientY, node })
   }
 
+  const getParentPath = (node: FileNode) => {
+    return node.type === "folder" ? node.path : node.path.split("/").slice(0, -1).join("/") || ""
+  }
+
   const handleCreateFile = async () => {
     if (!showInput || !inputValue.trim()) return
 
     const basePath = showInput.parentPath ? `${showInput.parentPath}/` : ""
-    const newPath = `${basePath}${inputValue}`
+    const newPath = `${basePath}${inputValue.trim()}`
 
     try {
       const response = await fetch(`/api/projects/${projectId}/files`, {
@@ -225,17 +259,15 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           path: newPath,
-          content: showInput.type === "folder" ? "" : "// New file",
-          language: showInput.type === "folder" ? "folder" : "typescript",
+          content: showInput.type === "folder" ? "" : "// New file\n",
+          language: showInput.type === "folder" ? undefined : "typescript",
           type: showInput.type,
         }),
       })
 
-      if (response.ok) {
-        onFilesChange?.()
-      }
+      if (response.ok) onFilesChange?.()
     } catch (error) {
-      console.error("[v0] Failed to create file:", error)
+      console.error("Failed to create file/folder:", error)
     }
 
     setShowInput(null)
@@ -247,23 +279,24 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
 
     const oldPath = contextMenu.node.path
     const parentPath = oldPath.split("/").slice(0, -1).join("/")
-    const newPath = parentPath ? `${parentPath}/${inputValue}` : inputValue
+    const newPath = parentPath ? `${parentPath}/${inputValue.trim()}` : inputValue.trim()
+
+    if (oldPath === newPath) {
+      setShowInput(null)
+      setInputValue("")
+      return
+    }
 
     try {
       const response = await fetch(`/api/projects/${projectId}/files`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          oldPath,
-          newPath,
-        }),
+        body: JSON.stringify({ oldPath, newPath }),
       })
 
-      if (response.ok) {
-        onFilesChange?.()
-      }
+      if (response.ok) onFilesChange?.()
     } catch (error) {
-      console.error("[v0] Failed to rename:", error)
+      console.error("Failed to rename:", error)
     }
 
     setShowInput(null)
@@ -277,16 +310,11 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
     try {
       const response = await fetch(
         `/api/projects/${projectId}/files?path=${encodeURIComponent(contextMenu.node.path)}`,
-        {
-          method: "DELETE",
-        },
+        { method: "DELETE" },
       )
-
-      if (response.ok) {
-        onFilesChange?.()
-      }
+      if (response.ok) onFilesChange?.()
     } catch (error) {
-      console.error("[v0] Failed to delete:", error)
+      console.error("Failed to delete:", error)
     }
 
     setContextMenu({ show: false, x: 0, y: 0, node: null })
@@ -304,22 +332,19 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
           isLocked: !contextMenu.node.isLocked,
         }),
       })
-
-      if (response.ok) {
-        onFilesChange?.()
-      }
+      if (response.ok) onFilesChange?.()
     } catch (error) {
-      console.error("[v0] Failed to toggle lock:", error)
+      console.error("Failed to toggle lock:", error)
     }
 
     setContextMenu({ show: false, x: 0, y: 0, node: null })
   }
 
   return (
-    <div className="text-sm relative p-2">
+    <div className="text-sm select-none">
       {tree.map((node, index) => (
         <TreeNode
-          key={index}
+          key={node.path}
           node={node}
           onFileSelect={onFileSelect}
           selectedPath={selectedPath}
@@ -328,82 +353,70 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
         />
       ))}
 
+      {/* Context Menu */}
       {contextMenu.show && contextMenu.node && (
         <div
           ref={contextMenuRef}
-          className="fixed bg-[#ffffff] border border-[#e0e0e0c9] rounded-md py-1 z-50 min-w-[180px] p-1"
+          className="fixed bg-background border rounded-md shadow-lg py-1 z-50 min-w-[200px] text-sm"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
             onClick={() => {
-              setShowInput({
-                type: "file",
-                parentPath:
-                  contextMenu.node?.type === "folder"
-                    ? contextMenu.node.path
-                    : contextMenu.node?.path.split("/").slice(0, -1).join("/") || "",
-              })
+              setShowInput({ type: "file", parentPath: getParentPath(contextMenu.node!) })
               setContextMenu({ show: false, x: 0, y: 0, node: null })
             }}
-            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4]`}
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent"
           >
-            <Plus className="w-4 h-4" />
-            New File
+            <Plus className="w-4 h-4" /> New File
           </button>
           <button
             onClick={() => {
-              setShowInput({
-                type: "folder",
-                parentPath:
-                  contextMenu.node?.type === "folder"
-                    ? contextMenu.node.path
-                    : contextMenu.node?.path.split("/").slice(0, -1).join("/") || "",
-              })
+              setShowInput({ type: "folder", parentPath: getParentPath(contextMenu.node!) })
               setContextMenu({ show: false, x: 0, y: 0, node: null })
             }}
-            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4]`}
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent"
           >
-            <Folder className="w-4 h-4" />
-            New Folder
+            <Folder className="w-4 h-4" /> New Folder
           </button>
           <button
             onClick={() => {
-              setInputValue(contextMenu.node?.name || "")
-              setShowInput({ type: "rename", parentPath: contextMenu.node?.path || "" })
+              setInputValue(contextMenu.node!.name)
+              setShowInput({ type: "rename", parentPath: contextMenu.node!.path })
             }}
-            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4]`}
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent"
           >
-            <Edit className="w-4 h-4" />
-            Rename
+            <Edit className="w-4 h-4" /> Rename
           </button>
           <button
             onClick={handleToggleLock}
-            className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4]`}
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent"
           >
             {contextMenu.node.isLocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
             {contextMenu.node.isLocked ? "Unlock" : "Lock"}
           </button>
           <button
             onClick={handleDelete}
-            className={`w-full flex text-red-700 items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4]`}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-destructive hover:bg-accent"
           >
-            <Trash className="w-4 h-4" />
-            Delete
+            <Trash className="w-4 h-4" /> Delete
           </button>
         </div>
       )}
 
+      {/* Create/Rename Modal */}
       {showInput && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[#2a2a2a] border border-[#3b3b3f] rounded-lg p-4 w-96">
-            <h3 className="text-white font-medium mb-3">
-              {showInput.type === "rename" ? "Rename" : `Create New ${showInput.type === "file" ? "File" : "Folder"}`}
+          <div className="bg-background border rounded-lg p-5 w-96 shadow-xl">
+            <h3 className="text-lg font-medium mb-4">
+              {showInput.type === "rename"
+                ? "Rename"
+                : `Create New ${showInput.type === "file" ? "File" : "Folder"}`}
             </h3>
             <Input
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder={showInput.type === "file" ? "filename.tsx" : "folder-name"}
-              className="mb-3"
+              placeholder={showInput.type === "file" ? "e.g. component.tsx" : "folder-name"}
+              className="mb-4"
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -414,19 +427,19 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
                 }
               }}
             />
-            <div className="flex gap-2 justify-end">
+            <div className="flex justify-end gap-2">
               <button
                 onClick={() => {
                   setShowInput(null)
                   setInputValue("")
                 }}
-                className="px-3 py-1.5 text-sm text-white hover:bg-[#3b3b3f] rounded"
+                className="px-4 py-2 text-sm hover:bg-accent rounded"
               >
                 Cancel
               </button>
               <button
                 onClick={showInput.type === "rename" ? handleRename : handleCreateFile}
-                className="px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded"
+                className="px-4 py-2 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded"
               >
                 {showInput.type === "rename" ? "Rename" : "Create"}
               </button>
