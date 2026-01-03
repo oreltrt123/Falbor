@@ -5,7 +5,6 @@ import { Card } from "@/components/ui/card"
 import { Trash2, Edit, Send, AlertCircle, GripVertical } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSortable } from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
 
 interface Task {
   id: string
@@ -29,7 +28,7 @@ export function TaskItem({ task, onSend, onEdit, onDelete, onViewError }: TaskIt
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id })
 
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scaleX}, ${transform.scaleY})` : undefined,
     transition,
   }
 
