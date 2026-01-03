@@ -37,7 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
     }
 
-    let projectFiles = await db.select().from(files).where(eq(files.projectId, projectId))
+    const projectFiles = await db.select().from(files).where(eq(files.projectId, projectId))
 
     const hasPy = projectFiles.some(f => f.path.endsWith('.py') || f.language === 'python');
     const hasJsTs = projectFiles.some(f => 
@@ -67,7 +67,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
       if (toInsert.length > 0) {
         await db.insert(files).values(toInsert);
-        projectFiles = await db.select().from(files).where(eq(files.projectId, projectId));
       }
     }
 
@@ -76,10 +75,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const subdomain = projectId.toLowerCase().replace(/[^a-z0-9-]/g, "-")
-    const baseDomain = process.env.NODE_ENV === "development" ? "lvh.me" : (process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz")
-    const protocol = process.env.NODE_ENV === "development" ? "http" : "https"
-    const port = process.env.NODE_ENV === "development" ? ":3000" : ""
-    const deploymentUrl = `${protocol}://${subdomain}.${baseDomain}${port}`
+
+    const baseUrl =
+      process.env.NODE_ENV === "development"
+        ? "http://localhost:3000"
+        : `https://${process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz"}`
+
+    const deploymentUrl = `${baseUrl}/deploy/${subdomain}`
 
     const [existingDeployment] = await db
       .select()

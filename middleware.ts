@@ -15,14 +15,17 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   }
 
   const hostname = req.headers.get("host") || ""
-  const baseDomain = process.env.NODE_ENV === "development" ? "lvh.me" : (process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz")
-  const hostWithoutPort = hostname.includes(':') ? hostname.split(':')[0] : hostname
+  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz"
 
-  if (hostWithoutPort.endsWith('.' + baseDomain)) {
-    const subdomain = hostWithoutPort.slice(0, -(baseDomain.length + 1))
-    if (subdomain && subdomain !== "www") {
+  if (process.env.NODE_ENV === "production" && hostname.includes(".")) {
+    const subdomain = hostname.split(".")[0]
+
+    // Skip if it's www or the base domain itself
+    if (subdomain !== "www" && hostname !== baseDomain) {
+      // Rewrite to /deploy/[subdomain]
       const url = req.nextUrl.clone()
       url.pathname = `/deploy/${subdomain}${url.pathname}`
+
       console.log("Subdomain detected:", subdomain, "-> rewriting to:", url.pathname)
       return NextResponse.rewrite(url)
     }
