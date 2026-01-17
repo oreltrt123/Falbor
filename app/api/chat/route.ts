@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 import { db } from "@/config/db"
 import { projects, messages, files, artifacts, userCustomKnowledge } from "@/config/schema"
 import { eq, asc } from "drizzle-orm"
-import { SYSTEM_PROMPT } from "@/lib/common/prompts/prompt"
+import { getSystemPrompt } from "@/lib/common/prompts/prompt"
 import { DISCUSS_SYSTEM_PROMPT } from "@/lib/common/prompts/discuss-prompt"
 
 const GREETING_KEYWORDS = ["hello", "hi", "hey", "greetings", "good morning", "good afternoon", "good evening"]
@@ -62,6 +62,8 @@ export async function POST(request: Request) {
     discussMode = false,
     isAutomated = false,
     selectedModel = "gemini",
+    supabaseUrl,
+    anonKey,
   } = body
 
   if (!message) {
@@ -83,6 +85,18 @@ export async function POST(request: Request) {
       })
       .returning({ id: projects.id })
     projectId = newProject.id
+
+    // Save credentials if provided
+    if (supabaseUrl && anonKey) {
+      await fetch(`/api/projects/${projectId}/supabase`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supabaseUrl,
+          anonKey,
+        }),
+      })
+    }
   }
 
   let project: any
@@ -133,6 +147,8 @@ export async function POST(request: Request) {
     discussMode,
     isAutomated,
     selectedModel,
+    supabaseUrl,
+    anonKey,
   )
 
   return new Response(responseStream, {
@@ -173,6 +189,8 @@ async function handleModelRequest(
   discussMode: boolean,
   isAutomated: boolean,
   selectedModel: string,
+  supabaseUrl?: string,
+  anonKey?: string,
 ) {
   const messageType = detectMessageType(message)
   const isCodeRequest =
@@ -182,10 +200,30 @@ async function handleModelRequest(
     `[${selectedModel}] Message type: ${messageType}, Code request: ${isCodeRequest} for: "${message.substring(0, 50)}..."`,
   )
 
+  let effectiveMessage = message
+
+  // If credentials provided and it's a build request, append to message
+  if (supabaseUrl && anonKey && isCodeRequest) {
+    effectiveMessage += `\n\n## Supabase Credentials\nVITE_SUPABASE_URL=${supabaseUrl}\nVITE_SUPABASE_ANON_KEY=${anonKey}`
+  } else if (isCodeRequest) {
+    // For existing projects, fetch credentials if exist
+    try {
+      const res = await fetch(`/api/projects/${projectId}/supabase`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.supabaseUrl && data.anonKey) {
+          effectiveMessage += `\n\n## Supabase Credentials\nVITE_SUPABASE_URL=${data.supabaseUrl}\nVITE_SUPABASE_ANON_KEY=${data.anonKey}`
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch database credentials:", err)
+    }
+  }
+
   if (selectedModel === "gemini") {
     return handleGeminiRequest(
       history,
-      message,
+      effectiveMessage,
       imageData,
       projectId,
       userId,
@@ -197,7 +235,7 @@ async function handleModelRequest(
   } else {
     return handleOpenRouterRequest(
       history,
-      message,
+      effectiveMessage,
       projectId,
       userId,
       discussMode,
@@ -239,7 +277,7 @@ async function handleGeminiRequest(
 
   try {
     const customKnowledgePrompt = await getCustomKnowledge(userId)
-    const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + customKnowledgePrompt
+    const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : getSystemPrompt + customKnowledgePrompt
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role,
@@ -286,6 +324,9 @@ Use these tags organically throughout:
 - <FileChecks>validation</FileChecks> - If needed
 - Response text - Your explanation
 - Code blocks - The actual files
+
+After generating code, perform testing:
+- <Testing>Describe test steps and results. If issues, update files accordingly.</Testing>
 
 Then generate production-ready code files.`
           } else {
@@ -426,7 +467,7 @@ async function handleOpenRouterRequest(
 
   try {
     const customKnowledgePrompt = await getCustomKnowledge(userId)
-    const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT + customKnowledgePrompt
+    const systemPrompt = discussMode ? DISCUSS_SYSTEM_PROMPT : getSystemPrompt + customKnowledgePrompt
 
     const conversationHistory = history.slice(0, -1).map((msg) => ({
       role: msg.role === "assistant" ? "assistant" : "user",
@@ -446,7 +487,7 @@ async function handleOpenRouterRequest(
       userPrompt = `${message}\n\nThink through this question step by step. Search for current information if needed. Then provide a clear, detailed answer. No code generation.`
     } else if (isCodeRequest) {
       console.log(`[OpenRouter/${modelId}] Using for code generation with dynamic flow`)
-      userPrompt = `${message}\n\nRespond with ORGANIC, DYNAMIC thinking - think, search, read, plan multiple times throughout naturally. Then generate clean code files.`
+      userPrompt = `${message}\n\nRespond with ORGANIC, DYNAMIC thinking - think, search, read, plan multiple times throughout naturally. Then generate clean code files. After code, perform testing with <Testing> tag.`
     }
 
     const messages = [

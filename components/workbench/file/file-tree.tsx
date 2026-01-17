@@ -15,11 +15,12 @@ import {
   Unlock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Input } from "@/components/ui/input"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 
 interface FileNode {
   name: string
-  path: string
+  path: string // relative path
+  fullPath: string // absolute path
   type: "file" | "folder"
   isLocked?: boolean
   additions?: number
@@ -27,6 +28,7 @@ interface FileNode {
   children?: FileNode[]
   content?: string
   language?: string
+  isInput?: boolean
 }
 
 interface FileTreeProps {
@@ -43,6 +45,7 @@ interface FileTreeProps {
   selectedPath?: string | null
   projectId: string
   onFilesChange?: () => void
+  currentRoot?: string
 }
 
 interface ContextMenuState {
@@ -50,6 +53,12 @@ interface ContextMenuState {
   x: number
   y: number
   node: FileNode | null
+}
+
+interface InsertInfo {
+  targetPath: string
+  inside: boolean
+  type: "file" | "folder"
 }
 
 // Sort children: folders first, then files, both alphabetically
@@ -70,12 +79,15 @@ function buildFileTree(
     isLocked?: boolean
     additions?: number
     deletions?: number
+    relativePath: string
+    fullPath: string
   }>,
+  prefix: string,
 ): FileNode[] {
   const root: FileNode[] = []
 
   for (const file of files) {
-    const parts = file.path.split("/").filter(Boolean) // Prevent empty parts
+    const parts = file.relativePath.split("/").filter(Boolean)
     let currentLevel = root
 
     for (let i = 0; i < parts.length; i++) {
@@ -86,19 +98,27 @@ function buildFileTree(
       let existingNode = currentLevel.find((node) => node.name === part)
 
       if (!existingNode) {
-        const fullPath = parts.slice(0, i + 1).join("/")
+        const relativeFull = parts.slice(0, i + 1).join("/") || part
+        const fullPath = prefix + relativeFull
         existingNode = {
           name: part,
-          path: fullPath || part, // Handle root-level files
+          path: relativeFull,
+          fullPath,
           type: isFile ? "file" : "folder",
-          isLocked: file.isLocked || false,
-          additions: isFile ? file.additions : undefined,
-          deletions: isFile ? file.deletions : undefined,
+          isLocked: isLast ? (file.isLocked || false) : false,
+          additions: isLast ? file.additions : undefined,
+          deletions: isLast ? file.deletions : undefined,
           children: isFile ? undefined : [],
-          content: isFile ? file.content : undefined,
-          language: isFile ? file.language : undefined,
+          content: isLast ? file.content : undefined,
+          language: isLast ? file.language : undefined,
         }
         currentLevel.push(existingNode)
+      } else if (isLast) {
+        existingNode.isLocked = file.isLocked || false
+        existingNode.additions = file.additions
+        existingNode.deletions = file.deletions
+        existingNode.content = file.content
+        existingNode.language = file.language
       }
 
       if (!isFile && existingNode.children) {
@@ -119,6 +139,197 @@ function buildFileTree(
   return sortNodes(root)
 }
 
+function buildWithInsert(nodes: FileNode[], insertInfo: InsertInfo): FileNode[] {
+  const newNodes: FileNode[] = [];
+
+  for (const node of nodes) {
+    const isTarget = node.fullPath === insertInfo.targetPath;
+    const dummy: FileNode = {
+      name: "",
+      path: "",
+      fullPath: `${node.fullPath}_dummy`,
+      type: insertInfo.type,
+      isInput: true,
+    };
+
+    const recursedChildren = node.children ? buildWithInsert(node.children, insertInfo) : undefined;
+
+    if (isTarget) {
+      if (insertInfo.inside) {
+        newNodes.push({
+          ...node,
+          children: [dummy, ...recursedChildren || []],
+        });
+      } else {
+        newNodes.push({
+          ...node,
+          children: recursedChildren,
+        });
+        newNodes.push(dummy);
+      }
+    } else {
+      newNodes.push({
+        ...node,
+        children: recursedChildren,
+      });
+    }
+  }
+
+  return newNodes;
+}
+
+function NewItemInput({
+  type,
+  level,
+  inputValue,
+  setInputValue,
+  handleCreateNew,
+  handleCancel,
+}: {
+  type: "file" | "folder"
+  level: number
+  inputValue: string
+  setInputValue: (value: string) => void
+  handleCreateNew: () => Promise<void>
+  handleCancel: () => void
+}) {
+  const isFolder = type === "folder"
+  const inputRef = useRef<HTMLInputElement>(null)
+  const indent = level * 16
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  const onKeyDown = async (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      await handleCreateNew()
+    } else if (e.key === "Escape") {
+      handleCancel()
+    }
+  }
+
+  const onBlur = async () => {
+    if (inputValue.trim()) {
+      await handleCreateNew()
+    } else {
+      handleCancel()
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1 pl-0 px-1 pr-2 py-[4px] cursor-text text-[13px] relative border border-blue-500",
+      )}
+      style={{ paddingLeft: `${indent + 8}px` }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {isFolder ? (
+        <>
+          <ChevronRight className="w-4 h-4 shrink-0" />
+          <Folder className="w-4 h-4 shrink-0 text-foreground/80" />
+        </>
+      ) : (
+        <>
+          <div className="w-4 shrink-0" />
+          <File className="w-4 h-4 shrink-0 text-foreground/80" />
+        </>
+      )}
+      <input
+        ref={inputRef}
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        onKeyDown={onKeyDown}
+        onBlur={onBlur}
+        className="focus:outline-none focus:ring-0 focus-visible:ring-0"
+        placeholder={isFolder ? "Enter folder name..." : "Enter file name..."}
+      />
+    </div>
+  )
+}
+
+function RenameInput({
+  node,
+  level,
+  inputValue,
+  setInputValue,
+  handleRename,
+  handleCancelRename,
+}: {
+  node: FileNode
+  level: number
+  inputValue: string
+  setInputValue: (value: string) => void
+  handleRename: () => Promise<void>
+  handleCancelRename: () => void
+}) {
+  const isFolder = node.type === "folder"
+  const [isOpen] = useState(false) // For rename, we don't toggle open, but keep as is
+  const inputRef = useRef<HTMLInputElement>(null)
+  const indent = level * 16
+
+  useEffect(() => {
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [])
+
+  const onKeyDown = async (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      await handleRename()
+    } else if (e.key === "Escape") {
+      handleCancelRename()
+    }
+  }
+
+  const onBlur = async () => {
+    if (inputValue.trim()) {
+      await handleRename()
+    } else {
+      handleCancelRename()
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1 pl-0 px-1 pr-2 py-[4px] cursor-text text-[13px] relative border border-blue-500",
+      )}
+      style={{ paddingLeft: `${indent + 8}px` }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {isFolder ? (
+        <>
+          {isOpen ? (
+            <ChevronDown className="w-4 h-4 shrink-0" />
+          ) : (
+            <ChevronRight className="w-4 h-4 shrink-0" />
+          )}
+          {isOpen ? (
+            <FolderOpen className="w-4 h-4 shrink-0 text-foreground/80" />
+          ) : (
+            <Folder className="w-4 h-4 shrink-0 text-foreground/80" />
+          )}
+        </>
+      ) : (
+        <>
+          <div className="w-4 shrink-0" />
+          <File className="w-4 h-4 shrink-0 text-foreground/80" />
+        </>
+      )}
+      <input
+        ref={inputRef}
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        onKeyDown={onKeyDown}
+        onBlur={onBlur}
+        className="focus:outline-none focus:ring-0 focus-visible:ring-0"
+        placeholder={isFolder ? "Enter folder name..." : "Enter file name..."}
+      />
+    </div>
+  )
+}
+
 function TreeNode({
   node,
   onFileSelect,
@@ -126,6 +337,14 @@ function TreeNode({
   level = 0,
   onContextMenu,
   projectId,
+  insertInfo,
+  renaming,
+  inputValue,
+  setInputValue,
+  handleCreateNew,
+  handleRename,
+  handleCancel,
+  handleCancelRename,
 }: {
   node: FileNode
   onFileSelect: (file: { path: string; content: string; language: string }) => void
@@ -133,8 +352,49 @@ function TreeNode({
   level?: number
   onContextMenu: (e: React.MouseEvent, node: FileNode) => void
   projectId: string
+  insertInfo?: InsertInfo | null
+  renaming: string | null
+  inputValue: string
+  setInputValue: (value: string) => void
+  handleCreateNew: () => Promise<void>
+  handleRename: () => Promise<void>
+  handleCancel: () => void
+  handleCancelRename: () => void
 }) {
-  const [isOpen, setIsOpen] = useState(level < 2) // Auto-expand top 2 levels
+  const [isOpen, setIsOpen] = useState(false)
+  const indent = level * 16
+
+  useEffect(() => {
+    if (insertInfo?.targetPath === node.fullPath && insertInfo.inside) {
+      setIsOpen(true)
+    }
+  }, [insertInfo, node.fullPath])
+
+  if (node.isInput) {
+    return (
+      <NewItemInput
+        type={node.type}
+        level={level}
+        inputValue={inputValue}
+        setInputValue={setInputValue}
+        handleCreateNew={handleCreateNew}
+        handleCancel={handleCancel}
+      />
+    )
+  }
+
+  if (renaming === node.fullPath) {
+    return (
+      <RenameInput
+        node={node}
+        level={level}
+        inputValue={inputValue}
+        setInputValue={setInputValue}
+        handleRename={handleRename}
+        handleCancelRename={handleCancelRename}
+      />
+    )
+  }
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -144,7 +404,7 @@ function TreeNode({
     if (node.type === "folder") {
       setIsOpen(!isOpen)
     } else if (node.content && node.language) {
-      onFileSelect({ path: node.path, content: node.content, language: node.language })
+      onFileSelect({ path: node.fullPath, content: node.content, language: node.language })
     }
   }
 
@@ -154,14 +414,12 @@ function TreeNode({
     onContextMenu(e, node)
   }
 
-  const indent = level * 16 // Increased indent for better hierarchy
-
   return (
     <div>
       <div
         className={cn(
           "flex items-center gap-1 pl-0 px-1 pr-2 py-[4px] hover:bg-[#e4e4e4a8] cursor-pointer text-[13px] relative group",
-          selectedPath === node.path && " bg-[#e4e4e4a8]",
+          selectedPath === node.fullPath && " bg-[#e4e4e4a8]",
           node.isLocked && "opacity-50",
         )}
         style={{ paddingLeft: `${indent + 8}px` }}
@@ -175,11 +433,11 @@ function TreeNode({
             ) : (
               <ChevronRight className="w-4 h-4 shrink-0" />
             )}
-            {/* {isOpen ? (
-              <FolderOpen className="w-4 h-4 shrink-0 text-black/80" />
+            {isOpen ? (
+              <FolderOpen className="w-4 h-4 shrink-0 text-foreground/80" />
             ) : (
-              <Folder className="w-4 h-4 shrink-0 text-black/80" />
-            )} */}
+              <Folder className="w-4 h-4 shrink-0 text-foreground/80" />
+            )}
           </>
         ) : (
           <>
@@ -203,13 +461,21 @@ function TreeNode({
         <div>
           {node.children.map((child, index) => (
             <TreeNode
-              key={`${child.path}-${index}`}
+              key={child.fullPath}
               node={child}
               onFileSelect={onFileSelect}
               selectedPath={selectedPath}
               level={level + 1}
               onContextMenu={onContextMenu}
               projectId={projectId}
+              insertInfo={insertInfo}
+              renaming={renaming}
+              inputValue={inputValue}
+              setInputValue={setInputValue}
+              handleCreateNew={handleCreateNew}
+              handleRename={handleRename}
+              handleCancel={handleCancel}
+              handleCancelRename={handleCancelRename}
             />
           ))}
         </div>
@@ -218,39 +484,53 @@ function TreeNode({
   )
 }
 
-export function FileTree({ files, onFileSelect, selectedPath, projectId, onFilesChange }: FileTreeProps) {
+export function FileTree({ files, onFileSelect, selectedPath, projectId, onFilesChange, currentRoot }: FileTreeProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ show: false, x: 0, y: 0, node: null })
-  const [showInput, setShowInput] = useState<{ type: "file" | "folder" | "rename"; parentPath: string } | null>(null)
+  const [newItem, setNewItem] = useState<{ targetPath: string; inside: boolean; type: "file" | "folder" } | null>(null)
+  const [renaming, setRenaming] = useState<string | null>(null)
   const [inputValue, setInputValue] = useState("")
-  const contextMenuRef = useRef<HTMLDivElement>(null)
-  const tree = buildFileTree(files)
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        setContextMenu({ show: false, x: 0, y: 0, node: null })
-      }
+  let prefix = ""
+  if (currentRoot) {
+    const rootItem = files.find((f) => f.path === currentRoot)
+    if (rootItem?.type === "folder") {
+      prefix = currentRoot + (currentRoot.endsWith("/") ? "" : "/")
+    } else {
+      const parts = currentRoot.split("/")
+      prefix = parts.slice(0, -1).join("/") + (parts.length > 1 ? "/" : "")
     }
+  }
 
-    if (contextMenu.show) {
-      document.addEventListener("mousedown", handleClickOutside)
-    }
+  const filteredFiles = files
+    .filter((f) => f.path.startsWith(prefix))
+    .map((f) => ({
+      ...f,
+      relativePath: f.path.slice(prefix.length),
+      fullPath: f.path,
+    }))
+    .filter((f) => f.relativePath)
 
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [contextMenu.show])
+  let tree = buildFileTree(filteredFiles, prefix)
+  const insertInfo = newItem
+  if (insertInfo) {
+    tree = buildWithInsert(tree, insertInfo)
+  }
 
   const handleContextMenu = (e: React.MouseEvent, node: FileNode) => {
     setContextMenu({ show: true, x: e.clientX, y: e.clientY, node })
   }
 
-  const getParentPath = (node: FileNode) => {
-    return node.type === "folder" ? node.path : node.path.split("/").slice(0, -1).join("/") || ""
+  const getParentPath = (fullPath: string) => {
+    return fullPath.split("/").slice(0, -1).join("/") || ""
   }
 
-  const handleCreateFile = async () => {
-    if (!showInput || !inputValue.trim()) return
+  const handleCreateNew = async () => {
+    if (!newItem || !inputValue.trim()) {
+      handleCancel()
+      return
+    }
 
-    const basePath = showInput.parentPath ? `${showInput.parentPath}/` : ""
+    const basePath = newItem.inside ? `${newItem.targetPath}/` : `${getParentPath(newItem.targetPath)}/`
     const newPath = `${basePath}${inputValue.trim()}`
 
     try {
@@ -259,31 +539,36 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           path: newPath,
-          content: showInput.type === "folder" ? "" : "// New file\n",
-          language: showInput.type === "folder" ? undefined : "typescript",
-          type: showInput.type,
+          content: newItem.type === "folder" ? "" : "// New file\n",
+          language: newItem.type === "folder" ? undefined : "typescript",
+          type: newItem.type,
         }),
       })
 
-      if (response.ok) onFilesChange?.()
+      if (response.ok) {
+        onFilesChange?.()
+        handleCancel()
+      } else {
+        console.error("Failed to create:", await response.text())
+      }
     } catch (error) {
       console.error("Failed to create file/folder:", error)
     }
-
-    setShowInput(null)
-    setInputValue("")
   }
 
   const handleRename = async () => {
-    if (!showInput || !inputValue.trim() || !contextMenu.node) return
+    if (!renaming || !inputValue.trim()) {
+      handleCancelRename()
+      return
+    }
 
-    const oldPath = contextMenu.node.path
-    const parentPath = oldPath.split("/").slice(0, -1).join("/")
-    const newPath = parentPath ? `${parentPath}/${inputValue.trim()}` : inputValue.trim()
+    const oldPath = renaming
+    const parts = oldPath.split("/")
+    parts[parts.length - 1] = inputValue.trim()
+    const newPath = parts.join("/")
 
     if (oldPath === newPath) {
-      setShowInput(null)
-      setInputValue("")
+      handleCancelRename()
       return
     }
 
@@ -294,14 +579,25 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
         body: JSON.stringify({ oldPath, newPath }),
       })
 
-      if (response.ok) onFilesChange?.()
+      if (response.ok) {
+        onFilesChange?.()
+        handleCancelRename()
+      } else {
+        console.error("Failed to rename:", await response.text())
+      }
     } catch (error) {
       console.error("Failed to rename:", error)
     }
+  }
 
-    setShowInput(null)
+  const handleCancel = () => {
+    setNewItem(null)
     setInputValue("")
-    setContextMenu({ show: false, x: 0, y: 0, node: null })
+  }
+
+  const handleCancelRename = () => {
+    setRenaming(null)
+    setInputValue("")
   }
 
   const handleDelete = async () => {
@@ -309,7 +605,7 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
 
     try {
       const response = await fetch(
-        `/api/projects/${projectId}/files?path=${encodeURIComponent(contextMenu.node.path)}`,
+        `/api/projects/${projectId}/files?path=${encodeURIComponent(contextMenu.node.fullPath)}`,
         { method: "DELETE" },
       )
       if (response.ok) onFilesChange?.()
@@ -328,7 +624,7 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          path: contextMenu.node.path,
+          path: contextMenu.node.fullPath,
           isLocked: !contextMenu.node.isLocked,
         }),
       })
@@ -342,110 +638,87 @@ export function FileTree({ files, onFileSelect, selectedPath, projectId, onFiles
 
   return (
     <div className="text-sm select-none">
-      {tree.map((node, index) => (
+      {tree.map((node) => (
         <TreeNode
-          key={node.path}
+          key={node.fullPath}
           node={node}
           onFileSelect={onFileSelect}
           selectedPath={selectedPath}
           onContextMenu={handleContextMenu}
           projectId={projectId}
+          insertInfo={insertInfo}
+          renaming={renaming}
+          inputValue={inputValue}
+          setInputValue={setInputValue}
+          handleCreateNew={handleCreateNew}
+          handleRename={handleRename}
+          handleCancel={handleCancel}
+          handleCancelRename={handleCancelRename}
         />
       ))}
 
       {/* Context Menu */}
-      {contextMenu.show && contextMenu.node && (
-        <div
-          ref={contextMenuRef}
-          className="fixed bg-background border rounded-md shadow-lg py-1 z-50 min-w-[200px] text-sm"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+      {contextMenu.node && (
+        <DropdownMenu
+          open={contextMenu.show}
+          onOpenChange={(open) => {
+            if (!open) {
+              setContextMenu({ show: false, x: 0, y: 0, node: null })
+            }
+          }}
+          modal={false}
         >
-          <button
-            onClick={() => {
-              setShowInput({ type: "file", parentPath: getParentPath(contextMenu.node!) })
-              setContextMenu({ show: false, x: 0, y: 0, node: null })
-            }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent"
+          <DropdownMenuContent
+            className="fixed bg-background border border-[#e4e4e4f1] rounded-md p-0 
+            z-50 min-w-[200px] text-sm"
+            style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
           >
-            <Plus className="w-4 h-4" /> New File
-          </button>
-          <button
-            onClick={() => {
-              setShowInput({ type: "folder", parentPath: getParentPath(contextMenu.node!) })
-              setContextMenu({ show: false, x: 0, y: 0, node: null })
-            }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent"
-          >
-            <Folder className="w-4 h-4" /> New Folder
-          </button>
-          <button
-            onClick={() => {
-              setInputValue(contextMenu.node!.name)
-              setShowInput({ type: "rename", parentPath: contextMenu.node!.path })
-            }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent"
-          >
-            <Edit className="w-4 h-4" /> Rename
-          </button>
-          <button
-            onClick={handleToggleLock}
-            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent"
-          >
-            {contextMenu.node.isLocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-            {contextMenu.node.isLocked ? "Unlock" : "Lock"}
-          </button>
-          <button
-            onClick={handleDelete}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-destructive hover:bg-accent"
-          >
-            <Trash className="w-4 h-4" /> Delete
-          </button>
-        </div>
-      )}
-
-      {/* Create/Rename Modal */}
-      {showInput && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-background border rounded-lg p-5 w-96 shadow-xl">
-            <h3 className="text-lg font-medium mb-4">
-              {showInput.type === "rename"
-                ? "Rename"
-                : `Create New ${showInput.type === "file" ? "File" : "Folder"}`}
-            </h3>
-            <Input
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder={showInput.type === "file" ? "e.g. component.tsx" : "folder-name"}
-              className="mb-4"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  showInput.type === "rename" ? handleRename() : handleCreateFile()
-                } else if (e.key === "Escape") {
-                  setShowInput(null)
-                  setInputValue("")
-                }
+            <div className="p-2">
+            <DropdownMenuItem
+              onSelect={() => {
+                setNewItem({ targetPath: contextMenu.node!.fullPath, inside: contextMenu.node!.type === "folder", type: "file" })
+                setInputValue("")
+                setContextMenu({ show: false, x: 0, y: 0, node: null })
               }}
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  setShowInput(null)
-                  setInputValue("")
-                }}
-                className="px-4 py-2 text-sm hover:bg-accent rounded"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={showInput.type === "rename" ? handleRename : handleCreateFile}
-                className="px-4 py-2 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded"
-              >
-                {showInput.type === "rename" ? "Rename" : "Create"}
-              </button>
+            >
+              <Plus className="w-4 h-4 mr-2 text-black" /> New File
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                setNewItem({ targetPath: contextMenu.node!.fullPath, inside: contextMenu.node!.type === "folder", type: "folder" })
+                setInputValue("")
+                setContextMenu({ show: false, x: 0, y: 0, node: null })
+              }}
+            >
+              <Folder className="w-4 h-4 mr-2 text-black" /> New Folder
+            </DropdownMenuItem>
             </div>
-          </div>
-        </div>
+            <hr className="text-[#e4e4e4f1]"/>
+            <div className="p-2">
+            <DropdownMenuItem
+              onSelect={() => {
+                setInputValue(contextMenu.node!.name)
+                setRenaming(contextMenu.node!.fullPath)
+                setContextMenu({ show: false, x: 0, y: 0, node: null })
+              }}
+            >
+              <Edit className="w-4 h-4 mr-2 text-black" /> Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={handleToggleLock}
+            >
+              {contextMenu.node.isLocked ? <Unlock className="w-4 h-4 mr-2 text-black" /> : <Lock className="w-4 h-4 mr-2 text-black" />}
+              {contextMenu.node.isLocked ? "Unlock" : "Lock"}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={handleDelete}
+              className="text-destructive/90 focus:text-destructive"
+            >
+              <Trash className="w-4 h-4 mr-2 text-destructive/60" /> Delete
+            </DropdownMenuItem>
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   )

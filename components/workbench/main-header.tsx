@@ -12,7 +12,7 @@ interface MainHeaderProps {
 }
 
 // Toggle this when the database section is ready
-const DATABASE_ENABLED = false
+const DATABASE_ENABLED = true
 
 export function MainHeader({ handleDownload, projectId }: MainHeaderProps) {
   return (

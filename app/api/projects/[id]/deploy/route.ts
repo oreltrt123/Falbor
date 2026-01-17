@@ -12,11 +12,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 <React.StrictMode>
 <App />
 </React.StrictMode>,
-)`;
+)`
 
 const INDEX_CSS_CONTENT = `@tailwind base;
 @tailwind components;
-@tailwind utilities;`;
+@tailwind utilities;`
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -39,34 +39,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const projectFiles = await db.select().from(files).where(eq(files.projectId, projectId))
 
-    const hasPy = projectFiles.some(f => f.path.endsWith('.py') || f.language === 'python');
-    const hasJsTs = projectFiles.some(f => 
-      f.language === 'javascript' || f.language === 'typescript' ||
-      f.path.match(/\.j(sx?)$/) || f.path.match(/\.ts(x?)$/)
-    );
+    const hasPy = projectFiles.some((f) => f.path.endsWith(".py") || f.language === "python")
+    const hasJsTs = projectFiles.some(
+      (f) =>
+        f.language === "javascript" ||
+        f.language === "typescript" ||
+        f.path.match(/\.j(sx?)$/) ||
+        f.path.match(/\.ts(x?)$/),
+    )
 
     if (hasJsTs && !hasPy) {
-      const hasMainTsx = projectFiles.some(f => f.path === 'src/main.tsx');
-      const hasIndexCss = projectFiles.some(f => f.path === 'src/index.css');
-      const toInsert = [];
+      const hasMainTsx = projectFiles.some((f) => f.path === "src/main.tsx")
+      const hasIndexCss = projectFiles.some((f) => f.path === "src/index.css")
+      const toInsert = []
       if (!hasMainTsx) {
         toInsert.push({
           projectId,
-          path: 'src/main.tsx',
+          path: "src/main.tsx",
           content: MAIN_TSX_CONTENT,
-          language: 'tsx',
-        });
+          language: "tsx",
+        })
       }
       if (!hasIndexCss) {
         toInsert.push({
           projectId,
-          path: 'src/index.css',
+          path: "src/index.css",
           content: INDEX_CSS_CONTENT,
-          language: 'css',
-        });
+          language: "css",
+        })
       }
       if (toInsert.length > 0) {
-        await db.insert(files).values(toInsert);
+        await db.insert(files).values(toInsert)
       }
     }
 
@@ -74,7 +77,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "No files to deploy" }, { status: 400 })
     }
 
-    const subdomain = projectId.toLowerCase().replace(/[^a-z0-9-]/g, "-")
+    const [existingDeployment] = await db
+      .select()
+      .from(deployments)
+      .where(eq(deployments.projectId, projectId))
+      .limit(1)
+
+    // Use existing subdomain if available, otherwise create new one
+    const subdomain = existingDeployment?.subdomain || projectId.toLowerCase().replace(/[^a-z0-9-]/g, "-")
 
     const baseUrl =
       process.env.NODE_ENV === "development"
@@ -83,18 +93,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const deploymentUrl = `${baseUrl}/deploy/${subdomain}`
 
-    const [existingDeployment] = await db
-      .select()
-      .from(deployments)
-      .where(eq(deployments.projectId, projectId))
-      .limit(1)
-
     if (existingDeployment) {
       await db
         .update(deployments)
         .set({
           deploymentUrl,
-          subdomain,
           updatedAt: new Date(),
         })
         .where(eq(deployments.id, existingDeployment.id))
@@ -102,6 +105,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({
         deploymentUrl,
         isNewDeployment: false,
+        updatedAt: new Date().toISOString(),
       })
     }
 
@@ -120,6 +124,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       deploymentUrl,
       isNewDeployment: true,
       deployment: newDeployment,
+      updatedAt: new Date().toISOString(),
     })
   } catch (error) {
     console.error("[DEPLOY]", error)

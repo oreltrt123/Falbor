@@ -97,8 +97,8 @@ export function GithubClone() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="w-full border h-8 cursor-pointer border-[#dbd9d965] rounded-full bg-white text-black px-3 py-2 flex items-center justify-between hover:border-[#c1603c56]"
-      >
+        className="hidden h-8 sm:flex text-sm font-medium cursor-pointer bg-[#e4e4e4a8] hover:bg-[#e4e4e480] border border-[#dbd9d965] py-1 px-4 rounded-4xl text-[#000000] items-center gap-2 w-full sm:w-auto"
+        >
         <span className="flex items-center gap-2">
           <Github className="w-4 h-4" />
           <span className="text-sm font-light">Clone from GitHub</span>
@@ -169,7 +169,7 @@ export function GithubClone() {
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="Paste GitHub repository URL"
                   disabled={isLoading}
-                  className="bg-[#ececec] border-[#ececec] text-white"
+                  className="bg-[#ececec] border-[#ececec] text-black"
                 />
 
                 {error && <p className="text-red-500 text-sm">{error}</p>}

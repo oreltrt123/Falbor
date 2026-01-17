@@ -1,3 +1,4 @@
+// config/schema.ts
 import { pgTable, text, timestamp, uuid, jsonb, boolean, integer, serial } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { check } from "drizzle-orm/pg-core"
@@ -264,7 +265,7 @@ export const projectDatabases = pgTable("project_databases", {
     .notNull()
     .unique()
     .references(() => projects.id, { onDelete: "cascade" }),
-  apiKey: text("api_key").notNull(),
+  apiKey: text("api_key"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
@@ -349,6 +350,112 @@ export const projectQueryFiles = pgTable("project_query_files", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
 
+export const templates = pgTable("templates", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id")
+    .notNull()
+    .unique()
+    .references(() => projects.id),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  tags: jsonb("tags").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  mainImage: text("main_image").notNull(),
+  images: jsonb("images").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  domain: text("domain").notNull(),
+  creatorId: text("creator_id").notNull(),
+  cardDesign: text("card_design").default("none").notNull(),
+  views: integer("views").default(0).notNull(),
+  clones: integer("clones").default(0).notNull(),
+  likes: integer("likes").default(0).notNull(),
+  isFeatured: boolean("is_featured").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
+export const templateLikes = pgTable("template_likes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  templateId: uuid("template_id")
+    .notNull()
+    .references(() => templates.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
+export const projectShares = pgTable("project_shares", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id").notNull(),
+  shareToken: text("share_token").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"),
+})
+
+export const projectCollaborators = pgTable("project_collaborators", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id").notNull(),
+  userId: text("user_id").notNull(),
+  invitedBy: text("invited_by").notNull(),
+  role: text("role").default("viewer").notNull(),
+  status: text("status").default("pending").notNull(),
+  joinedAt: timestamp("joined_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
+export const projectLogs = pgTable("project_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: text("project_id").notNull(),
+  level: text("level").notNull().$type<"info" | "warn" | "error" | "success">(),
+  message: text("message").notNull(),
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
+/**
+ * Stores Supabase credentials for each AI-generated project
+ * These are auto-provisioned when a project needs database functionality
+ */
+export const projectSupabase = pgTable("project_supabase", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id")
+    .notNull()
+    .unique()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  supabaseProjectRef: text("supabase_project_ref").notNull(),
+  supabaseUrl: text("supabase_url").notNull(),
+  anonKey: text("anon_key").notNull(),
+  serviceRoleKey: text("service_role_key").notNull(),
+  dbPassword: text("db_password").notNull(),
+  region: text("region").notNull().default("us-east-1"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
+/**
+ * Stores global Supabase connection for each user (not per project)
+ * This allows the database connection to persist across all projects
+ */
+export const userSupabaseConnections = pgTable("user_supabase_connections", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  accessToken: text("access_token").notNull(),
+  selectedProjectRef: text("selected_project_ref"),
+  selectedProjectName: text("selected_project_name"),
+  supabaseUrl: text("supabase_url"),
+  anonKey: text("anon_key"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
+export type ProjectSupabase = typeof projectSupabase.$inferSelect
+export type NewProjectSupabase = typeof projectSupabase.$inferInsert
+
+export type UserSupabaseConnection = typeof userSupabaseConnections.$inferSelect
+export type NewUserSupabaseConnection = typeof userSupabaseConnections.$inferInsert
+
 // ====================
 // TYPE INFERENCES
 // ====================
@@ -393,3 +500,13 @@ export type ProjectDatabaseLog = typeof projectDatabaseLogs.$inferSelect
 export type NewProjectDatabaseLog = typeof projectDatabaseLogs.$inferInsert
 export type ProjectQueryFile = typeof projectQueryFiles.$inferSelect
 export type NewProjectQueryFile = typeof projectQueryFiles.$inferInsert
+
+export type Template = typeof templates.$inferSelect
+export type NewTemplate = typeof templates.$inferInsert
+export type TemplateLike = typeof templateLikes.$inferSelect
+export type NewTemplateLike = typeof templateLikes.$inferInsert
+export type ProjectShare = typeof projectShares.$inferSelect
+export type NewProjectShare = typeof projectShares.$inferInsert
+export type ProjectCollaborator = typeof projectCollaborators.$inferSelect
+export type NewProjectCollaborator = typeof projectCollaborators.$inferInsert
+export type ProjectLogs = typeof projectLogs.$inferInsert

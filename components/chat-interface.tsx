@@ -7,7 +7,7 @@ import { CodePreview } from "@/components/workbench/code-preview"
 import type { Project, Message as SchemaMessage } from "@/config/schema"
 import { Navbar } from "./chat/navbar"
 import { useAuth } from "@clerk/nextjs"
-import { usePathname, useSearchParams, useRouter } from 'next/navigation'
+import { usePathname, useSearchParams, useRouter } from "next/navigation"
 
 interface StrictMessage extends Omit<SchemaMessage, "role"> {
   role: "user" | "assistant"
@@ -119,9 +119,7 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
         return
       }
       hasAutoTriggered.current = true
-      const existingUserMessage = messages.find(
-        (m) => m.role === "user" && m.content === initialUserMessage
-      )
+      const existingUserMessage = messages.find((m) => m.role === "user" && m.content === initialUserMessage)
       if (existingUserMessage) {
         if (isCodeGenerationRequest(initialUserMessage)) {
           setIsPreviewOpen(true)
@@ -259,10 +257,10 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
       setIsStreaming(false)
       setIsCodeGenerating(false)
       // Remove prompt query param if exists
-      if (searchParams.has('prompt')) {
+      if (searchParams.has("prompt")) {
         const params = new URLSearchParams(searchParams.toString())
-        params.delete('prompt')
-        router.replace(`${pathname}${params.toString() ? '?' + params.toString() : ''}`, { scroll: false })
+        params.delete("prompt")
+        router.replace(`${pathname}${params.toString() ? "?" + params.toString() : ""}`, { scroll: false })
       }
     }
   }
@@ -376,6 +374,7 @@ export function ChatInterface({ project, initialMessages, initialUserMessage }: 
                   ...msg,
                   createdAt: msg.createdAt instanceof Date ? msg.createdAt.toISOString() : msg.createdAt,
                 }))}
+                projectId={project.id}
               />
             </div>
             <div ref={messagesEndRef} />

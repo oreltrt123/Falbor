@@ -5,39 +5,46 @@ import type { NextRequest } from "next/server"
 const isProtectedRoute = createRouteMatcher(["/chat(.*)"])
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {
+  const { pathname } = req.nextUrl
+
+  // 1. Skip auth & rewrites for special routes
   if (
-    req.nextUrl.pathname.startsWith("/api/webhooks") ||
-    req.nextUrl.pathname.startsWith("/api/stripe/webhook") ||
-    req.nextUrl.pathname.startsWith("/deploy/")
+    pathname.startsWith("/api/webhooks") ||
+    pathname.startsWith("/api/stripe/webhook") ||
+    pathname.startsWith("/deploy/")
   ) {
-    console.log("Middleware: Skipping auth for:", req.nextUrl.pathname)
     return NextResponse.next()
   }
 
+  // 2. Detect subdomain
   const hostname = req.headers.get("host") || ""
-  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz"
+  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.app"
 
-  if (process.env.NODE_ENV === "production" && hostname.includes(".")) {
-    const subdomain = hostname.split(".")[0]
+  /**
+   * Examples:
+   * eccf34b9.falbor.app  -> subdomain = eccf34b9
+   * www.falbor.app      -> ignore
+   * falbor.app          -> ignore
+   */
+  const isSubdomain =
+    hostname.endsWith(`.${baseDomain}`) &&
+    !hostname.startsWith("www.") &&
+    hostname !== baseDomain
 
-    // Skip if it's www or the base domain itself
-    if (subdomain !== "www" && hostname !== baseDomain) {
-      // Rewrite to /deploy/[subdomain]
-      const url = req.nextUrl.clone()
-      url.pathname = `/deploy/${subdomain}${url.pathname}`
+  if (process.env.NODE_ENV === "production" && isSubdomain) {
+    const subdomain = hostname.replace(`.${baseDomain}`, "")
 
-      console.log("Subdomain detected:", subdomain, "-> rewriting to:", url.pathname)
-      return NextResponse.rewrite(url)
-    }
+    const url = req.nextUrl.clone()
+    url.pathname = `/deploy/${subdomain}${pathname}`
+
+    console.log("Rewriting subdomain:", hostname, "->", url.pathname)
+
+    return NextResponse.rewrite(url)
   }
 
+  // 3. Protect private routes
   if (isProtectedRoute(req)) {
     await auth.protect()
-  }
-
-  if (process.env.NODE_ENV === "development") {
-    const { userId } = await auth()
-    console.log("Middleware: Auth check for", req.nextUrl.pathname, "- User:", userId || "Anonymous")
   }
 
   return NextResponse.next()

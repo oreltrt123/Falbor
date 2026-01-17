@@ -134,11 +134,11 @@ export function SecuritySection({ projectId }: SecuritySectionProps) {
   }
 
   return (
-    <div className="p-6 flex-1 m-0 flex flex-col overflow-hidden">
+    <div className="p-2 flex-1 m-0 flex flex-col overflow-hidden">
       {/* Main Project Title */}
       <div className="mb-4 flex justify-between items-center w-full">
         <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
+          <h2 className="text-xl font-semibold text-foreground">
             App & web Security
           </h2>
           <p className="text-sm text-muted-foreground">

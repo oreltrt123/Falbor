@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 import { db } from "@/config/db"
 import { projects, messages, files, artifacts, figmaTokens } from "@/config/schema"
 import { eq } from "drizzle-orm"
-import { SYSTEM_PROMPT } from "@/lib/common/prompts/prompt"  // Adjust path if needed
+// import { SYSTEM_PROMPT } from "@/lib/common/prompts/prompt"  // Adjust path if needed
 
 // Helper functions (same as before)
 function extractCodeBlocks(content: string) {
@@ -180,13 +180,13 @@ export default function Page() {
 
 Figma JSON: ${figmaJson}`
 
-    const fullPrompt = SYSTEM_PROMPT + "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/page.tsx, components/Hero.tsx) in Next.js/Tailwind style—ensure fenced blocks for each." + "\n\n" + figmaPrompt
+    // const fullPrompt = SYSTEM_PROMPT + "\n\nUI FOCUS: Prioritize generating dedicated component files (e.g., app/page.tsx, components/Hero.tsx) in Next.js/Tailwind style—ensure fenced blocks for each." + "\n\n" + figmaPrompt
 
-    const result = await model.generateContent(fullPrompt)
-    const fullResponse = result.response.text()
+    // const result = await model.generateContent(fullPrompt)
+    // const fullResponse = result.response.text()
 
     // Save response
-    await saveFigmaResponse(project.id, fullResponse, userId)
+    // await saveFigmaResponse(project.id, fullResponse, userId)
 
     return NextResponse.json({ projectId: project.id })
   } catch (error) {

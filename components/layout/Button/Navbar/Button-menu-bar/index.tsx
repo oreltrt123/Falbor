@@ -74,6 +74,7 @@ const DEFAULT_MENUS: MenuConfig[] = [
 ];
 
 const APPLE_MENU_ITEMS: MenuItemOption[] = [
+  { type: 'item', label: 'Return to home', action: '/' },
   { type: 'item', label: 'About This Website', action: '/about' },
   { type: 'separator' },
   { type: 'item', label: 'Restart...', action: 'restart' }, // ← this one will now reload the page
@@ -491,6 +492,11 @@ const MacOSMenuBar: React.FC<MacOSMenuBarProps> = ({
                 Projects
               </span>
             </Link>
+            <Link href={'/templates'}>
+              <span className="text-black/80 hover:text-black/70 text-sm font-semibold">
+                Templates
+              </span>
+            </Link>
             <div className="flex items-center space-x-6">
               {menus.map((menu) => (
                 <span
@@ -535,7 +541,7 @@ const MacOSMenuBar: React.FC<MacOSMenuBarProps> = ({
             ) : (
               <>
                 <Link href={"/sign-in"}>
-                  <button className="text-sm font-medium cursor-pointer text-[#e7e7e7]">Sign In</button>
+                  <button className="text-sm font-medium cursor-pointer text-[#181717]">Sign In</button>
                 </Link>
                 <Link href={"/sign-up"}>
                   <button className="text-sm font-medium cursor-pointer w-[70px] bg-[#e7e7e7] p-1 rounded-md text-[#000000]">

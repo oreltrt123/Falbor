@@ -79,8 +79,8 @@ export default function FAQ({
 }: FAQProps) {
   return (
     <Section className={className}>
-      <div className='max-w-container mx-auto flex flex-col items-center gap-8'>
-        <h2 className='text-center text-white text-3xl leading-tight font-sans font-light sm:text-5xl'>
+      <div className='max-w-container mx-auto flex flex-col items-center gap-8 mt-10'>
+        <h2 className='text-center text-black text-3xl leading-tight font-sans font-light sm:text-5xl'>
           {title}
         </h2>
         {items !== false && items.length > 0 && (

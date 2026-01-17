@@ -89,9 +89,9 @@ export function CustomKnowledgeSection() {
   }
 
   return (
-    <div className="p-6">
-      <div className="max-w-2xl">
-        <h2 className="text-xl font-light text-black mb-2">Custom Knowledge</h2>
+    <div className="p-2">
+      <div className="">
+        <h2 className="text-xl font-semibold text-foreground">Custom Knowledge</h2>
         <p className="text-sm text-black/60 mb-6">
           Define custom instructions that will be included in every AI generation. The AI will always remember and
           follow these preferences.

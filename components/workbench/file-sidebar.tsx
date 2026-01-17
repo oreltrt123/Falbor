@@ -7,20 +7,19 @@ interface FileSidebarProps {
   selectedPath: string | null
   projectId: string
   onFilesChange: () => void
+  currentRoot?: string
 }
 
-export function FileSidebar({ files, onFileSelect, selectedPath, projectId, onFilesChange }: FileSidebarProps) {
+export function FileSidebar({ files, onFileSelect, selectedPath, projectId, onFilesChange, currentRoot }: FileSidebarProps) {
   return (
     <>
-      {/* <div className="p-2 bg-[#1b1b1b]">
-        <p className="text-xs font-medium text-white">FILES ({files.length})</p>
-      </div> */}
       <FileTree
         files={files}
         onFileSelect={onFileSelect}
         selectedPath={selectedPath}
         projectId={projectId}
         onFilesChange={onFilesChange}
+        currentRoot={currentRoot}
       />
     </>
   )

@@ -19,14 +19,17 @@ import {
   ChevronRight,
   Folder,
   Search,
-  Palette,
+  ChevronUp,
+  Lightbulb,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { useState, useEffect, useCallback } from "react"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import remarkGfm from "remark-gfm" // For better Markdown support (tables, etc.)
+import remarkGfm from "remark-gfm"
+import { SandpackProvider, SandpackPreview } from "@codesandbox/sandpack-react"
+import { useUser } from "@clerk/nextjs"
 
 interface Message {
   id: string
@@ -40,6 +43,7 @@ interface Message {
 
 interface MessageListProps {
   messages: Message[]
+  projectId: string
   onArtifactClick?: (artifactId: string) => void
   onCodeExtracted?: (files: Array<{ filename: string; code: string; language: string }>) => void
   onCopy?: (content: string) => void
@@ -49,20 +53,20 @@ interface MessageListProps {
     version: string,
     project: string,
     codeBlocks: Array<{ filename: string; code: string; language: string }>,
-  ) => void // New prop for opening preview
+  ) => void
 }
 
 interface TextPart {
-  type: 'text';
-  content: string;
+  type: "text"
+  content: string
 }
 
 interface DesignPart {
-  type: 'design';
-  content: { name: string; config: any; json: string };
+  type: "design"
+  content: { name: string; config: any; json: string }
 }
 
-type UserPart = TextPart | DesignPart;
+type UserPart = TextPart | DesignPart
 
 function parseAIResponse(content: string) {
   const tagRegexes: Record<string, RegExp> = {
@@ -75,24 +79,26 @@ function parseAIResponse(content: string) {
     files: /<Files>([\s\S]*?)<\/Files>/gi,
     previewButton: /<PreviewButton version="([^"]+)" project="([^"]+)">([\s\S]*?)<\/PreviewButton>/gi,
     importCard: /<ImportCard repo="([^"]+)" \/>/gi,
+    testing: /<Testing>([\s\S]*?)<\/Testing>/gi,
   }
 
-  const codeRegex = /\`\`\`(\w+)?\s*(?:file="([^"]+)")?\s*\n([\s\S]*?)\`\`\`/g
+  const codeRegex = /```(\w+)?\s*(?:file="([^"]+)")?\s*\n([\s\S]*?)```/g
 
-  let matches: Array<{ type: string; start: number; fullMatch: string; content: any }> = []
+  const matches: Array<{ type: string; start: number; fullMatch: string; content: any }> = []
 
-  // Collect tag matches
   for (const [type, regex] of Object.entries(tagRegexes)) {
     for (const match of content.matchAll(regex)) {
       let parsedContent: any
-      if (type === 'previewButton') {
+      if (type === "previewButton") {
         parsedContent = { version: match[1], project: match[2], text: match[3].trim() }
-      } else if (type === 'importCard') {
+      } else if (type === "importCard") {
         parsedContent = { repo: match[1] }
-      } else if (type === 'fileChecks') {
+      } else if (type === "fileChecks") {
         const checksContent = match[1].trim()
         const checks: Array<{ file: string; error: string; fix: string; status: string }> = []
-        const checkLines = checksContent.split("\n").filter((line) => line.includes("File:") || line.includes("- Error:"))
+        const checkLines = checksContent
+          .split("\n")
+          .filter((line) => line.includes("File:") || line.includes("- Error:"))
         let currentFile = ""
         checkLines.forEach((line) => {
           if (line.includes("File:")) {
@@ -112,7 +118,7 @@ function parseAIResponse(content: string) {
           }
         })
         parsedContent = checks
-      } else if (type === 'files') {
+      } else if (type === "files") {
         const filesContent = match[1].trim()
         const filesList: { name: string; path: string; status: "success" | "error" | "loading" }[] = []
         const fileLines = filesContent.split("\n").filter((line) => line.trim())
@@ -129,6 +135,8 @@ function parseAIResponse(content: string) {
           }
         })
         parsedContent = filesList
+      } else if (type === "testing") {
+        parsedContent = match[1].trim()
       } else {
         parsedContent = match[1].trim()
       }
@@ -136,41 +144,95 @@ function parseAIResponse(content: string) {
     }
   }
 
-  // Collect code block matches
   for (const match of content.matchAll(codeRegex)) {
     const language = match[1] || "typescript"
     const filename = match[2] || `file.${language}`
     const code = match[3].trim()
     matches.push({
-      type: 'codeBlock',
+      type: "codeBlock",
       start: match.index!,
       fullMatch: match[0],
-      content: { filename, code, language }
+      content: { filename, code, language },
     })
   }
 
-  // Sort matches by start position
   matches.sort((a, b) => a.start - b.start)
 
-  // Build parts
   const parts: Array<{ type: string; content: any }> = []
   const codeBlocks: Array<{ filename: string; code: string; language: string }> = []
   let lastEnd = 0
   for (const m of matches) {
     const textBefore = content.substring(lastEnd, m.start).trim()
     if (textBefore) {
-      parts.push({ type: 'text', content: textBefore })
+      parts.push({ type: "text", content: textBefore })
     }
-    if (m.type === 'codeBlock') {
+    if (m.type === "codeBlock") {
       codeBlocks.push(m.content)
     } else {
       parts.push({ type: m.type, content: m.content })
     }
     lastEnd = m.start + m.fullMatch.length
   }
-  const finalText = content.substring(lastEnd).trim()
+  let finalText = content.substring(lastEnd).trim()
+
+  // Handle incomplete (open) tags at the end for streaming
   if (finalText) {
-    parts.push({ type: 'text', content: finalText })
+    const simpleTypes = ["thinking", "commentary", "userMessage", "planning", "search", "fileChecks", "files", "testing"];
+    for (const type of simpleTypes) {
+      const openRegex = new RegExp(`<${type.charAt(0).toUpperCase() + type.slice(1)}>([\\s\\S]*)`, "i");
+      const match = finalText.match(openRegex);
+      if (match && match.index === 0) {
+        let parsedContent = match[1].trim();
+        // Special parsing for fileChecks, files, etc., if needed (similar to above)
+        if (type === "fileChecks") {
+          // Reuse the parsing logic from above, adapted for incomplete
+          const checksContent = parsedContent;
+          const checks: Array<{ file: string; error: string; fix: string; status: string }> = [];
+          const checkLines = checksContent.split("\n").filter((line) => line.includes("File:") || line.includes("- Error:"));
+          let currentFile = "";
+          checkLines.forEach((line) => {
+            if (line.includes("File:")) {
+              currentFile = line.match(/File:\s*(.+?)(?:\s*-|$)/)?.[1]?.trim() || "";
+            } else if (line.includes("- Error:")) {
+              const errorMatch = line.match(/-\s*Error:\s*(.+?)(?:\s*-|$)/);
+              const fixMatch = line.match(/-\s*Fix Applied:\s*(.+?)(?:\s*-|$)/);
+              const statusMatch = line.match(/-\s*Status:\s*(.+)/);
+              if (currentFile && errorMatch) {
+                checks.push({
+                  file: currentFile,
+                  error: errorMatch[1].trim(),
+                  fix: fixMatch ? fixMatch[1].trim() : "",
+                  status: statusMatch ? statusMatch[1].trim() : "PENDING",
+                });
+              }
+            }
+          });
+        } else if (type === "files") {
+          // Reuse files parsing
+          const filesContent = parsedContent;
+          const filesList: { name: string; path: string; status: "success" | "error" | "loading" }[] = [];
+          const fileLines = filesContent.split("\n").filter((line) => line.trim());
+          fileLines.forEach((line) => {
+            const successMatch = line.match(/(.+?)\s*[✓✔]/i);
+            const errorMatch = line.match(/(.+?)\s*[✗✘X]/i);
+            const loadingMatch = line.match(/(.+?)\s*[⏳⌛…]/i);
+            if (successMatch) {
+              filesList.push({ name: successMatch[1].trim(), path: successMatch[1].trim(), status: "success" });
+            } else if (errorMatch) {
+              filesList.push({ name: errorMatch[1].trim(), path: errorMatch[1].trim(), status: "error" });
+            } else if (loadingMatch) {
+              filesList.push({ name: loadingMatch[1].trim(), path: loadingMatch[1].trim(), status: "loading" });
+            }
+          });
+        }
+        parts.push({ type, content: parsedContent });
+        finalText = "";
+        break;
+      }
+    }
+    if (finalText) {
+      parts.push({ type: "text", content: finalText });
+    }
   }
 
   return { parts, codeBlocks }
@@ -192,16 +254,17 @@ function parseUserContent(content: string): { parts: UserPart[] } {
     }
     return {
       parts: [
-        { type: 'text', content: mainContent },
-        { type: 'design', content: { name: designName, config: designConfig, json: designJson } }
-      ]
+        { type: "text", content: mainContent },
+        { type: "design", content: { name: designName, config: designConfig, json: designJson } },
+      ],
     }
   }
-  return { parts: [{ type: 'text', content: content.trim() }] }
+  return { parts: [{ type: "text", content: content.trim() }] }
 }
 
 export function MessageList({
   messages,
+  projectId,
   onArtifactClick,
   onCodeExtracted,
   onCopy,
@@ -220,6 +283,7 @@ export function MessageList({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState<string>("")
   const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({})
+  const { user, isLoaded } = useUser()
 
   const toggleSection = (messageId: string, section: string) => {
     setExpandedSections((prev) => ({
@@ -233,7 +297,17 @@ export function MessageList({
 
   const openFullMessageModal = useCallback((message: Message) => {
     const { parts } = parseAIResponse(message.content)
-    const collapsibleTypes = ['thinking', 'commentary', 'userMessage', 'planning', 'search', 'fileChecks', 'files', 'importCard']
+    const collapsibleTypes = [
+      "thinking",
+      "commentary",
+      "userMessage",
+      "planning",
+      "search",
+      "fileChecks",
+      "files",
+      "importCard",
+      "testing",
+    ]
     let collapsibleIndex = 0
     const initialExpanded: Record<string, boolean> = {}
     parts.forEach((part) => {
@@ -272,7 +346,6 @@ export function MessageList({
         const { codeBlocks } = parseAIResponse(lastMessage.content)
         if (codeBlocks && codeBlocks.length > 0) {
           onCodeExtracted?.(codeBlocks)
-          // Update file history
           setFileHistory((prev) => {
             const newHist = { ...prev }
             codeBlocks.forEach((block) => {
@@ -322,12 +395,11 @@ export function MessageList({
   }
 
   return (
-    <div className="space-y-6" role="log" aria-live="polite">
+    <div className="space-y-3" role="log" aria-live="polite">
       {messages.map((message, index) => {
         const isStreaming = message.id.startsWith("temp-") && index === messages.length - 1
         const isEditing = editingId === message.id
 
-        // Check if this is a terminal error fix response
         const isTerminalErrorResponse =
           message.role === "assistant" &&
           index > 0 &&
@@ -336,7 +408,7 @@ export function MessageList({
 
         const messageWrapperClass = cn(
           "relative max-w-[100%] rounded-lg px-4 py-3",
-          message.role === "user" ? "bg-[#e4e4e4a8] text-[15px] text-black" : "text-[15px] text-black",
+          message.role === "user" ? "bg-[#e4e4e4a8] text-[15px] text-black w-full" : "text-[15px] text-black",
         )
 
         const renderedMessage = (
@@ -346,138 +418,112 @@ export function MessageList({
             aria-label={`${message.role} message`}
           >
             {message.role === "user" ? (
-              <div className="space-y-3 w-full">
-                {/* User's uploaded images (existing) */}
-                {message.imageData?.map((img, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setSelectedImage(img.url)}
-                    className="block rounded border border-black/10 hover:border-black/20 transition-colors overflow-hidden"
-                    aria-label={`View image ${idx + 1}`}
-                  >
-                    <img
-                      src={img.url || "/placeholder.svg?height=200&width=300"}
-                      alt={`Uploaded image ${idx + 1}`}
-                      className="max-w-xs max-h-48 object-cover hover:opacity-80 transition-opacity"
-                    />
-                  </button>
-                ))}
+              <div className="flex items-start gap-2 w-full">
+                <img
+                  src={user?.imageUrl || "/placeholder.svg"}
+                  alt={user?.firstName || "User"}
+                  className="w-8 h-8 rounded-full flex-shrink-0 mt-1"
+                  style={{ marginLeft: "-3px" }}
+                />
+                <div className="flex-1 space-y-2">
+                  {message.imageData?.map((img, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedImage(img.url)}
+                      className="block rounded border border-black/10 hover:border-black/20 transition-colors overflow-hidden"
+                      aria-label={`View image ${idx + 1}`}
+                    >
+                      <img
+                        src={img.url || "/placeholder.svg?height=200&width=300"}
+                        alt={`Uploaded image ${idx + 1}`}
+                        className="max-w-xs max-h-48 object-cover hover:opacity-80 transition-opacity"
+                      />
+                    </button>
+                  ))}
 
-                {/* User's uploaded files (existing) */}
-                {message.uploadedFiles?.map((file, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setSelectedFile(file)}
-                    className="flex items-center gap-2 px-3 py-2 bg-black/5 hover:bg-black/10 rounded transition-colors text-sm w-full text-left"
-                    aria-label={`View file ${file.name}`}
-                  >
-                    <FileText className="w-4 h-4 flex-shrink-0" />
-                    <span className="truncate">{file.name}</span>
-                  </button>
-                ))}
+                  {message.uploadedFiles?.map((file, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedFile(file)}
+                      className="flex items-center gap-2 px-3 py-2 bg-black/5 hover:bg-black/10 rounded transition-colors text-sm w-full text-left"
+                      aria-label={`View file ${file.name}`}
+                    >
+                      <FileText className="w-4 h-4 flex-shrink-0" />
+                      <span className="truncate">{file.name}</span>
+                    </button>
+                  ))}
 
-                {/* User message content */}
-                {isEditing ? (
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault()
-                        onEdit?.(message.id, editContent)
-                        setEditingId(null)
-                      } else if (e.key === "Escape") {
-                        setEditingId(null)
-                      }
-                    }}
-                    className="w-full p-2 border rounded resize-none text-sm bg-white text-black/75"
-                    placeholder="Edit your message..."
-                    autoFocus
-                    rows={3}
-                  />
-                ) : (
-                  <>
-                    {(() => {
-                      const { parts } = parseUserContent(message.content)
-                      return parts.map((part, partIdx) => {
-                        if (part.type === 'text') {
-                          const isLong = part.content.length > 200
-                          const isExpanded = expandedMessages[message.id] ?? false
-                          return (
-                            <div key={partIdx} className={cn(isLong && !isExpanded && "max-h-32 overflow-hidden")}>
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  strong: ({ children }: { children?: React.ReactNode }) => (
-                                    <strong className="font-bold text-black">{children}</strong>
-                                  ),
-                                  em: ({ children }: { children?: React.ReactNode }) => (
-                                    <em className="italic text-black/80">{children}</em>
-                                  ),
-                                  p: ({ children }: { children?: React.ReactNode }) => (
-                                    <p className="text-sm whitespace-pre-wrap leading-relaxed mb-2">{children}</p>
-                                  ),
-                                  ul: ({ children }: { children?: React.ReactNode }) => (
-                                    <ul className="list-disc pl-5 space-y-1">{children}</ul>
-                                  ),
-                                  ol: ({ children }: { children?: React.ReactNode }) => (
-                                    <ol className="list-decimal pl-5 space-y-1">{children}</ol>
-                                  ),
-                                  li: ({ children }: { children?: React.ReactNode }) => (
-                                    <li className="text-sm leading-relaxed">{children}</li>
-                                  ),
-                                }}
-                              >
-                                {part.content}
-                              </ReactMarkdown>
-                              {isLong && !isExpanded && (
-                                <Button
-                                  variant="link"
-                                  size="sm"
-                                  onClick={() => toggleMessageExpand(message.id)}
-                                  className="p-0 h-auto text-black/70"
-                                >
-                                  See more
-                                </Button>
-                              )}
-                            </div>
-                          )
-                        } else if (part.type === 'design') {
-                          const sectionKey = `design-${message.id}`
-                          const isOpen = expandedSections[message.id]?.[sectionKey] ?? false
-                          return (
-                            <Collapsible key={partIdx} open={isOpen} onOpenChange={() => toggleSection(message.id, sectionKey)}>
-                              <CollapsibleTrigger asChild>
-                                {/* <Button
-                                  variant="ghost"
-                                  className="w-full text-left flex items-center justify-between px-0 py-2 text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none h-auto group"
-                                  aria-expanded={isOpen}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <Palette className="w-4 h-4" />
-                                    <span>{part.content.name}</span>
-                                  </div>
-                                  <ChevronDown
-                                    className={cn(
-                                      "w-4 h-4 transition-transform duration-200",
-                                      isOpen && "rotate-180",
-                                    )}
-                                  />
-                                </Button> */}
-                              </CollapsibleTrigger>
-                              <CollapsibleContent className="mt-2">
-                                <SyntaxHighlighter language="json" style={oneDark} customStyle={{ margin: 0 }}>
-                                  {part.content.json}
-                                </SyntaxHighlighter>
-                              </CollapsibleContent>
-                            </Collapsible>
-                          )
+                  {isEditing ? (
+                    <textarea
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault()
+                          onEdit?.(message.id, editContent)
+                          setEditingId(null)
+                        } else if (e.key === "Escape") {
+                          setEditingId(null)
                         }
-                        return null
-                      })
-                    })()}
-                  </>
-                )}
+                      }}
+                      className="w-full p-2 border rounded resize-none text-sm bg-white text-black/75"
+                      placeholder="Edit your message..."
+                      autoFocus
+                      rows={3}
+                    />
+                  ) : (
+                    <>
+                      {(() => {
+                        const { parts } = parseUserContent(message.content)
+                        return parts.map((part, partIdx) => {
+                          if (part.type === "text") {
+                            const isLong = part.content.length > 200
+                            const isExpanded = expandedMessages[message.id] ?? false
+                            return (
+                              <div
+                                key={partIdx}
+                                className={cn(
+                                  isLong &&
+                                    !isExpanded &&
+                                    "max-h-32 overflow-hidden relative after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-8 after:bg-gradient-to-t after:to-transparent",
+                                )}
+                              >
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    strong: ({ children }: { children?: React.ReactNode }) => (
+                                      <strong className="font-bold text-black">{children}</strong>
+                                    ),
+                                    em: ({ children }: { children?: React.ReactNode }) => (
+                                      <em className="italic text-black/80">{children}</em>
+                                    ),
+                                    p: ({ children }: { children?: React.ReactNode }) => (
+                                      <p className="text-sm whitespace-pre-wrap leading-relaxed mb-1 last:mb-0">
+                                        {children}
+                                      </p>
+                                    ),
+                                    ul: ({ children }: { children?: React.ReactNode }) => (
+                                      <ul className="list-disc pl-5 space-y-1 mb-1 last:mb-0">{children}</ul>
+                                    ),
+                                    ol: ({ children }: { children?: React.ReactNode }) => (
+                                      <ol className="list-decimal pl-5 space-y-1 mb-1 last:mb-0">{children}</ol>
+                                    ),
+                                    li: ({ children }: { children?: React.ReactNode }) => (
+                                      <li className="text-sm leading-relaxed">{children}</li>
+                                    ),
+                                  }}
+                                >
+                                  {part.content}
+                                </ReactMarkdown>
+                              </div>
+                            )
+                          }
+                          return null
+                        })
+                      })()}
+                    </>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="w-full">
@@ -494,38 +540,48 @@ export function MessageList({
               </div>
             )}
 
-            {/* Action buttons */}
-            <div className="absolute bottom-2 right-2 flex gap-1">
-              {message.role === "user" ? (
-                <>
-                  {/* <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleCopy(message.content)}
-                    className="h-6 w-6 p-0 relative top-4 bg-white border"
-                    aria-label="Copy message"
-                  >
-                    <Copy className="h-3 w-3" />
-                  </Button> */}
-                </>
-              ) : (
-                <>
+            {message.role === "user" ? (
+              <div className="absolute top-2 right-1 flex items-center gap-1">
+                {message.content.length > 200 && (
                   <Button
-                    variant="ghost"
+                    variant="link"
                     size="sm"
-                    onClick={() => {
-                      const sections = parseAIResponse(message.content)
-                      const textToCopy = sections.parts.filter(p => p.type === 'text').map(p => p.content).join('\n') || message.content
-                      handleCopy(textToCopy)
-                    }}
-                    className="h-6 w-6 p-0 hover:bg-[#e4e4e4]"
-                    aria-label="Copy response"
+                    onClick={() => toggleMessageExpand(message.id)}
+                    className="p-0 h-auto text-black/70 flex items-center gap-1 cursor-pointer"
                   >
-                    <Copy className="h-3 w-3" />
+                    {expandedMessages[message.id] ? (
+                      <ChevronUp className="w-5 h-5" />
+                    ) : (
+                      <ChevronDown className="w-5 h-5" />
+                    )}
                   </Button>
-                </>
-              )}
-            </div>
+                )}
+              </div>
+            ) : (
+              <>
+                {!isStreaming && (
+                  <div className="absolute bottom-2 right-2 flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const sections = parseAIResponse(message.content)
+                        const textToCopy =
+                          sections.parts
+                            .filter((p) => p.type === "text")
+                            .map((p) => p.content)
+                            .join("\n") || message.content
+                        handleCopy(textToCopy)
+                      }}
+                      className="h-6 w-6 p-0 hover:bg-[#e4e4e4]"
+                      aria-label="Copy response"
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )
 
@@ -549,7 +605,7 @@ export function MessageList({
         )
       })}
 
-      {/* Image Modal (existing) */}
+      {/* Image Modal */}
       {selectedImage && (
         <div
           className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
@@ -577,7 +633,7 @@ export function MessageList({
         </div>
       )}
 
-      {/* File Modal (existing) */}
+      {/* File Modal */}
       {selectedFile && (
         <div
           className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
@@ -626,7 +682,7 @@ export function MessageList({
             {selectedOldCode ? (
               <>
                 <div className="flex items-center justify-between p-3 border-b border-[#3A3A3E]">
-                  <h3 className="text-sm font-mono text-white">Diff View: ${selectedCode.filename}</h3>
+                  <h3 className="text-sm font-mono text-white">Diff View: {selectedCode.filename}</h3>
                   <button
                     onClick={() => {
                       setSelectedCode(null)
@@ -749,7 +805,7 @@ export function MessageList({
                 onToggleSection={toggleModalSection}
                 onArtifactClick={onArtifactClick}
                 onCodeSelect={handleCodeSelect}
-                onOpenFullModal={() => {}} // No-op in modal to avoid recursion
+                onOpenFullModal={() => {}}
                 onOpenPreview={onOpenPreview}
               />
             </div>
@@ -791,11 +847,13 @@ function AIMessageContent({
     ),
     em: ({ children }: { children?: React.ReactNode }) => <em className="italic text-black/80">{children}</em>,
     p: ({ children }: { children?: React.ReactNode }) => (
-      <p className="text-sm leading-relaxed whitespace-pre-wrap mb-2">{children}</p>
+      <p className="text-sm leading-relaxed whitespace-pre-wrap mb-1 last:mb-0">{children}</p>
     ),
-    ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 space-y-1 mb-2">{children}</ul>,
+    ul: ({ children }: { children?: React.ReactNode }) => (
+      <ul className="list-disc pl-5 space-y-1 mb-1 last:mb-0">{children}</ul>
+    ),
     ol: ({ children }: { children?: React.ReactNode }) => (
-      <ol className="list-decimal pl-5 space-y-1 mb-2">{children}</ol>
+      <ol className="list-decimal pl-5 space-y-1 mb-1 last:mb-0">{children}</ol>
     ),
     li: ({ children }: { children?: React.ReactNode }) => <li className="text-sm leading-relaxed">{children}</li>,
     code: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
@@ -805,22 +863,24 @@ function AIMessageContent({
 
   const getTitle = (type: string, content: any) => {
     switch (type) {
-      case 'thinking':
-        return 'Thinking'
-      case 'commentary':
-        return 'Commentary'
-      case 'userMessage':
-        return 'Read'
-      case 'planning':
-        return 'Planning'
-      case 'search':
-        return 'Search Results'
-      case 'fileChecks':
+      case "thinking":
+        return "Thinking"
+      case "commentary":
+        return "Commentary"
+      case "userMessage":
+        return "Read"
+      case "planning":
+        return "Planning"
+      case "search":
+        return "Search Results"
+      case "fileChecks":
         return `File Checks ${content.length}`
-      case 'files':
+      case "files":
         return `Files ${content.length}`
-      case 'importCard':
-        return 'Importing GitHub Repository'
+      case "importCard":
+        return "Importing GitHub Repository"
+      case "testing":
+        return "Live Testing"
       default:
         return type.charAt(0).toUpperCase() + type.slice(1)
     }
@@ -828,20 +888,22 @@ function AIMessageContent({
 
   const getIcon = (type: string) => {
     switch (type) {
-      case 'thinking':
-      case 'commentary':
+      case "thinking":
+      case "commentary":
         return Brain
-      case 'userMessage':
+      case "userMessage":
         return FileText
-      case 'search':
+      case "search":
         return Search
-      case 'planning':
-        return List
-      case 'fileChecks':
+      case "planning":
+        return Lightbulb
+      case "fileChecks":
         return Bug
-      case 'files':
+      case "files":
         return Folder
-      case 'importCard':
+      case "importCard":
+        return Globe
+      case "testing":
         return Globe
       default:
         return FileText
@@ -850,13 +912,17 @@ function AIMessageContent({
 
   const renderPartContent = (type: string, content: any) => {
     switch (type) {
-      case 'thinking':
-      case 'commentary':
-      case 'userMessage':
-      case 'planning':
-      case 'search':
-        return <div className="p-1 "><span className="text-[14px] text-[#2e2e2e]">{content}</span></div>
-      case 'fileChecks':
+      case "thinking":
+      case "commentary":
+      case "userMessage":
+      case "planning":
+      case "search":
+        return (
+          <div className="p-1">
+            <span className="text-[14px] text-[#2e2e2e]">{content}</span>
+          </div>
+        )
+      case "fileChecks":
         return (
           <div className="space-y-2 p-2 border rounded-sm bg-red-50/50">
             {content.map((check: { file: string; error: string; fix: string; status: string }, idx: number) => (
@@ -885,13 +951,16 @@ function AIMessageContent({
             ))}
           </div>
         )
-      case 'files':
+      case "files":
         return (
           <div className="space-y-2 p-1 bg-[#bebaba18] border w-full rounded-sm shadow-[0px_0px_10px_0px_white]">
-            <h1 className="font-light flex items-center gap-[5px] ml-2 mt-1"><List className="h-4 w-4"/>Plan files</h1>
+            <h1 className="font-light flex items-center gap-[5px] ml-2 mt-1">
+              <List className="h-4 w-4" />
+              Plan files
+            </h1>
             {content.map((file: { name: string; path: string; status: string }, idx: number) => (
-              <div 
-                key={idx} 
+              <div
+                key={idx}
                 className="flex items-center gap-2 text-sm rounded-sm cursor-pointer hover:bg-[#e4e4e48c] py-1.5 px-3 hover:underline"
                 onClick={onOpenFullModal}
                 role="button"
@@ -903,13 +972,31 @@ function AIMessageContent({
             ))}
           </div>
         )
-      case 'importCard':
+      case "importCard":
         return (
           <div className="mt-1 bg-[#e4e4e4] rounded-b-md px-3 py-2">
             <div className="flex items-center gap-2 text-green-600">
               <CheckCircle2 className="w-5 h-5" />
               <span>Import {content.repo}</span>
             </div>
+          </div>
+        )
+      case "testing":
+        return (
+          <div className="mt-2 p-2">
+            <div className="w-64 h-64 bg-white border overflow-hidden">
+              <SandpackProvider
+                files={codeBlocks.reduce((acc: Record<string, string>, block) => {
+                  acc[`/${block.filename}`] = block.code
+                  return acc
+                }, {})}
+                template="react-ts"
+                theme="light"
+              >
+                <SandpackPreview style={{ height: "100%" }} />
+              </SandpackProvider>
+            </div>
+            <p className="mt-2 text-sm text-gray-600">{content}</p>
           </div>
         )
       default:
@@ -920,10 +1007,10 @@ function AIMessageContent({
   return (
     <div className="space-y-3 w-full">
       {parts.map((part, idx) => {
-        if (part.type === 'text') {
+        if (part.type === "text") {
           return (
             <div key={idx} className="prose prose-sm max-w-none text-black/75">
-              {isStreaming && parts.filter(p => p.type === 'text').every(p => !p.content) ? (
+              {isStreaming && parts.filter((p) => p.type === "text").every((p) => !p.content) ? (
                 <div className="flex items-center gap-2 text-muted-foreground" aria-live="polite">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span className="text-sm">Generating response...</span>
@@ -935,17 +1022,11 @@ function AIMessageContent({
               )}
             </div>
           )
-        } else if (part.type === 'previewButton') {
+        } else if (part.type === "previewButton") {
           return (
             <div key={idx} className="mt-4">
               <Button
-                onClick={() =>
-                  onOpenPreview?.(
-                    part.content.version,
-                    part.content.project,
-                    codeBlocks,
-                  )
-                }
+                onClick={() => onOpenPreview?.(part.content.version, part.content.project, codeBlocks)}
                 className="relative cursor-pointer flex items-center gap-2 justify-start w-full text-left text-sm font-medium text-black/75 hover:text-black bg-transparent hover:bg-transparent border-none p-0 h-auto group"
               >
                 <div className="relative w-4 h-4">
@@ -971,14 +1052,24 @@ function AIMessageContent({
             </div>
           )
         } else {
-          // Collapsible types
-          const collapsibleTypes = ['thinking', 'commentary', 'userMessage', 'planning', 'search', 'fileChecks', 'files', 'importCard']
+          const collapsibleTypes = [
+            "thinking",
+            "commentary",
+            "userMessage",
+            "planning",
+            "search",
+            "fileChecks",
+            "files",
+            "importCard",
+            "testing",
+          ]
           if (!collapsibleTypes.includes(part.type)) return null
 
-          // Calculate the collapsible index based on previous collapsibles
-          const collapsibleIndex = parts.slice(0, idx).filter(p => collapsibleTypes.includes(p.type)).length
+          const collapsibleIndex = parts.slice(0, idx).filter((p) => collapsibleTypes.includes(p.type)).length
           const sectionKey = `section-${collapsibleIndex}`
-          const isOpen = expandedSections[sectionKey] ?? false
+
+          const isLastPart = idx === parts.length - 1
+          const isOpen = expandedSections[sectionKey] ?? (isStreaming && isLastPart ? true : false)
           const title = getTitle(part.type, part.content)
           const Icon = getIcon(part.type)
 
@@ -1016,14 +1107,12 @@ function AIMessageContent({
                   <span>{title}</span>
                 </Button>
               </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2">
-                {renderPartContent(part.type, part.content)}
-              </CollapsibleContent>
+              <CollapsibleContent className="mt-2">{renderPartContent(part.type, part.content)}</CollapsibleContent>
             </Collapsible>
           )
         }
       })}
-      {isStreaming && parts.some(p => p.type === 'text' && p.content) && (
+      {isStreaming && parts.some((p) => p.type === "text" && p.content) && (
         <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1" />
       )}
     </div>

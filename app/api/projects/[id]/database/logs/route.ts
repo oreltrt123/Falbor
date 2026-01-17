@@ -1,43 +1,56 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { sql, getOrCreateProjectDatabase } from "@/config/db"
+// Logs management
+import { auth } from "@clerk/nextjs/server"
+import { db } from "@/config/db"
+import { projectLogs } from "@/config/schema"
+import { eq, desc } from "drizzle-orm"
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+// GET - List logs
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { userId } = await auth()
+  if (!userId) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
+  }
+
+  const { id: projectId } = await params
+  const { searchParams } = new URL(request.url)
+  const limit = Number.parseInt(searchParams.get("limit") || "100")
+
   try {
-    const { id: projectId } = await params
-    const db = await getOrCreateProjectDatabase(projectId)
-    const { searchParams } = new URL(request.url)
-    const limit = Number.parseInt(searchParams.get("limit") || "100")
+    const logs = await db
+      .select({
+        id: projectLogs.id,
+        level: projectLogs.level,
+        message: projectLogs.message,
+        details: projectLogs.details,
+        created_at: projectLogs.createdAt,
+      })
+      .from(projectLogs)
+      .where(eq(projectLogs.projectId, projectId))
+      .orderBy(desc(projectLogs.createdAt))
+      .limit(limit)
 
-    const logs = await sql`
-      SELECT * FROM project_database_logs 
-      WHERE project_database_id = ${db.id}
-      ORDER BY created_at DESC
-      LIMIT ${limit}
-    `
-
-    return NextResponse.json({ logs })
+    return new Response(JSON.stringify({ logs }), { status: 200 })
   } catch (error) {
-    console.error("[Database Logs GET] Error:", error)
-    return NextResponse.json({ error: "Failed to fetch logs" }, { status: 500 })
+    console.error("[Database/Logs] Error:", error)
+    return new Response(JSON.stringify({ error: "Failed to fetch logs" }), { status: 500 })
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+// DELETE - Clear logs
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { userId } = await auth()
+  if (!userId) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
+  }
+
+  const { id: projectId } = await params
+
   try {
-    const { id: projectId } = await params
-    const db = await getOrCreateProjectDatabase(projectId)
+    await db.delete(projectLogs).where(eq(projectLogs.projectId, projectId))
 
-    await sql`DELETE FROM project_database_logs WHERE project_database_id = ${db.id}`
-
-    return NextResponse.json({ success: true })
+    return new Response(JSON.stringify({ success: true }), { status: 200 })
   } catch (error) {
-    console.error("[Database Logs DELETE] Error:", error)
-    return NextResponse.json({ error: "Failed to clear logs" }, { status: 500 })
+    console.error("[Database/Logs/Clear] Error:", error)
+    return new Response(JSON.stringify({ error: "Failed to clear logs" }), { status: 500 })
   }
 }

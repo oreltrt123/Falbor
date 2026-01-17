@@ -216,7 +216,7 @@ export default function Page() {
         <input
           type="text"
           placeholder="First Name"
-          className="px-3 py-1 w-[50%] text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px] flex-1"
+          className="px-3 py-1 w-[50%] text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px] flex-1"
           value={firstName}
           onChange={(e) => setFirstName(e.target.value)}
           required
@@ -224,7 +224,7 @@ export default function Page() {
         <input
           type="text"
           placeholder="Last Name"
-          className="px-3 py-1 w-[50%] text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px] flex-1"
+          className="px-3 py-1 w-[50%] text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px] flex-1"
           value={lastName}
           onChange={(e) => setLastName(e.target.value)}
           required
@@ -234,7 +234,7 @@ export default function Page() {
         <input
           type="text"
           placeholder="Username"
-          className="px-3 py-1 text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
+          className="px-3 py-1 text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
@@ -243,7 +243,7 @@ export default function Page() {
       <input
         type="email"
         placeholder="Email"
-        className="px-3 py-1 text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
+        className="px-3 py-1 text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         required
@@ -252,7 +252,7 @@ export default function Page() {
         <input
           type="tel"
           placeholder="Phone Number"
-          className="px-3 py-1 text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
+          className="px-3 py-1 text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           required
@@ -261,13 +261,13 @@ export default function Page() {
       <input
         type="password"
         placeholder="Password"
-        className="px-3 py-1 text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
+        className="px-3 py-1 text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         required
       />
       {error && <div className="text-red-500 text-xs text-center">{error}</div>}
-      <button type="submit" disabled={loading} className="mt-2 bg-[#0099FF] text-white py-1 rounded-md text-sm cursor-pointer disabled:opacity-50">
+      <button type="submit" disabled={loading} className="mt-2 bg-[#c15f3c] text-white py-1 rounded-md text-sm cursor-pointer disabled:opacity-50">
         {loading ? "Creating..." : "Sign up"}
       </button>
     </form>
@@ -279,7 +279,7 @@ export default function Page() {
         <input
           type="text"
           placeholder="Username (required)"
-          className="px-3 py-1 text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
+          className="px-3 py-1 text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
@@ -289,14 +289,14 @@ export default function Page() {
         <input
           type="tel"
           placeholder="Phone Number (required)"
-          className="px-3 py-1 text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
+          className="px-3 py-1 text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           required
         />
       )}
       {error && <div className="text-red-500 text-xs text-center">{error}</div>}
-      <button type="submit" disabled={loading} className="mt-2 bg-[#0099FF] text-white py-1 rounded-md text-sm cursor-pointer disabled:opacity-50">
+      <button type="submit" disabled={loading} className="mt-2 bg-[#c15f3c] text-white py-1 rounded-md text-sm cursor-pointer disabled:opacity-50">
         {loading ? "Updating..." : "Continue"}
       </button>
     </form>
@@ -307,27 +307,27 @@ export default function Page() {
       <input
         type="text"
         placeholder="Enter 6-digit code from email"
-        className="px-3 py-1 text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
+        className="px-3 py-1 text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
         value={verificationCode}
         onChange={(e) => setVerificationCode(e.target.value)}
         required
         maxLength={6}
       />
       {error && <div className="text-red-500 text-xs text-center">{error}</div>}
-      <button type="button" onClick={resendCode} className="text-xs text-[#0099FF] text-center underline">
+      <button type="button" onClick={resendCode} className="text-xs text-[#c15f3c] text-center underline">
         Resend code
       </button>
-      <button type="submit" disabled={loading} className="mt-2 bg-[#0099FF] text-white py-1 rounded-md text-sm cursor-pointer disabled:opacity-50">
+      <button type="submit" disabled={loading} className="mt-2 bg-[#c15f3c] text-white py-1 rounded-md text-sm cursor-pointer disabled:opacity-50">
         {loading ? "Verifying..." : "Verify"}
       </button>
     </form>
   )
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center p-4 bg-[#161616] overflow-x-hidden">
+    <div className="relative min-h-screen flex items-center justify-center p-4 bg-[#ffffff] overflow-x-hidden">
       {/* Sign Up Form */}
-      <div className="w-full max-w-xs rounded-xl p-6 bg-transparent md:-translate-x-16 md:mr-40">
-        <h1 className="text-2xl font-light text-center text-white">
+      <div className="w-full max-w-xs rounded-xl p-6 bg-transparent md:-translate-x-16 z-[9999]"> {/* md:mr-40 */}
+        <h1 className="text-2xl font-light text-center text-black">
           {step === 'form' ? 'Create your account' : step === 'missing' ? 'Complete profile' : 'Verify email'}
         </h1>
         <h1 className="text-2xl font-light text-center mb-4 text-[#939494]">
@@ -344,7 +344,7 @@ export default function Page() {
           <div className="flex flex-col gap-2 mt-4">
             <button
               onClick={handleOAuthGoogle}
-              className="flex items-center justify-center gap-2 rounded-md py-1 bg-[#272727] hover:bg-[#2e2d2d] text-[#bec2c2] text-sm cursor-pointer"
+              className="flex items-center justify-center gap-2 rounded-md py-1 bg-[#e4e4e4a8] hover:bg-[#d6d6d6a8] text-[#3b3b3b] text-sm cursor-pointer"
               disabled={loadingProvider !== null || loading}
             >
               <img alt="Google" src="/googlelogo.png" className="w-4 h-4" />
@@ -352,7 +352,7 @@ export default function Page() {
             </button>
             <button
               onClick={handleOAuthGithub}
-              className="flex items-center justify-center gap-2 rounded-md py-1 bg-[#272727] hover:bg-[#2e2d2d] text-[#bec2c2] text-sm cursor-pointer"
+              className="flex items-center justify-center gap-2 rounded-md py-1 bg-[#e4e4e4a8] hover:bg-[#d6d6d6a8] text-[#3b3b3b] text-sm cursor-pointer"
               disabled={loadingProvider !== null || loading}
             >
               <img alt="GitHub" src="/githublogo.png" className="w-4 h-4" />
@@ -363,7 +363,7 @@ export default function Page() {
 
         <p className="text-center text-xs text-[#939494] mt-4">
           {step === 'form' ? 'Already have an account?' : step === 'missing' ? 'Need help?' : 'Didn\'t receive code?'}{' '}
-          <Link href={step === 'form' ? "/sign-in" : "/sign-in"} className="text-[#0099ffc7]">{step === 'form' ? 'Log in' : step === 'missing' ? 'Contact support' : 'Resend'}</Link>
+          <Link href={step === 'form' ? "/sign-in" : "/sign-in"} className="text-[#c15f3c]">{step === 'form' ? 'Log in' : step === 'missing' ? 'Contact support' : 'Resend'}</Link>
         </p>
         {step === 'form' && (
           <p className="text-center text-xs text-[#939494] mt-2">
@@ -373,11 +373,11 @@ export default function Page() {
       </div>
 
       {/* Globe on the right side - hidden on mobile */}
-      <div className="hidden md:block absolute inset-y-0 right-0 z-0 flex items-center pr-4">
+      {/* <div className="hidden md:block absolute inset-y-0 right-0 z-0 flex items-center pr-4">
         <div className="relative left-[120px] w-[600px] h-[600px] sm:w-[700px] sm:h-[700px] md:w-[800px] md:h-[800px] lg:w-[900px] lg:h-[900px]">
           <Globe className="absolute inset-0 w-full h-full opacity-80" />
         </div>
-      </div>
+      </div> */}
     </div>
   )
 }

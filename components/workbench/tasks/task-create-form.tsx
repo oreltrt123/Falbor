@@ -174,7 +174,7 @@ export function TaskCreateForm({ projectId, projectInfo, onBack, onTaskCreated }
                 variant="outline"
                 onClick={handleImproveTask}
                 disabled={aiLoading || !newTask.description.trim()}
-                className="bg-white shadow-none border-none cursor-pointer h-7"
+                className="shadow-none border-none cursor-pointer h-7"
               >
                 {aiLoading ? (
                   <>
@@ -193,7 +193,7 @@ export function TaskCreateForm({ projectId, projectInfo, onBack, onTaskCreated }
                 variant="outline"
                 onClick={handleGenerateIdea}
                 disabled={aiLoading}
-                className="bg-white absolute left-41 shadow-none border-none cursor-pointer h-7"
+                className="absolute left-41 shadow-none border-none cursor-pointer h-7"
               >
                 {aiLoading ? (
                   <>

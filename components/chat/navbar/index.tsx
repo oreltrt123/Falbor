@@ -3,16 +3,39 @@
 import Link from "next/link"
 import { useUser, useClerk, useAuth } from "@clerk/nextjs"
 import { useState, useRef, useEffect } from "react"
-import { Globe, Code2, Download, Settings, Database } from "lucide-react"
+import {
+  Globe,
+  Code2,
+  Download,
+  Settings,
+  Database,
+  Copy,
+  ExternalLink,
+  Check,
+  Share2,
+} from "lucide-react"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
+import { formatDistanceToNow } from "date-fns"
 
 interface CreditsData {
   credits: number
   secondsUntilNextRegen: number
   pendingGift?: number
   pendingMonthly?: number
+}
+
+interface DeploymentData {
+  deploymentUrl: string
+  updatedAt: string
 }
 
 interface NavbarProps {
@@ -27,29 +50,44 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
   const { user, isLoaded } = useUser()
   const clerk = useClerk()
   const { getToken } = useAuth()
-  const [open, setOpen] = useState(false)
+
+  // Single dropdown state
+  type OpenDropdown = "profile" | "publish" | "share" | null
+  const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null)
+
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const publishDropdownRef = useRef<HTMLDivElement>(null)
+  const shareRef = useRef<HTMLDivElement>(null)
+
   const [creditsData, setCreditsData] = useState<CreditsData | null>(null)
   const [timeLeft, setTimeLeft] = useState(0)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const [isDeploying, setIsDeploying] = useState(false)
-  const [deployedUrl, setDeployedUrl] = useState<string | null>(null)
 
-  // Close dropdown if clicked outside
+  const [isPublishing, setIsPublishing] = useState(false)
+  const [deployment, setDeployment] = useState<DeploymentData | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const [isPublic, setIsPublic] = useState(false)
+  const [shareUrl, setShareUrl] = useState("")
+  const [shareCopied, setShareCopied] = useState(false)
+  const [shareLoading, setShareLoading] = useState(false)
+
+  // Close any dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setOpen(false)
+      if (
+        !dropdownRef.current?.contains(event.target as Node) &&
+        !publishDropdownRef.current?.contains(event.target as Node) &&
+        !shareRef.current?.contains(event.target as Node)
+      ) {
+        setOpenDropdown(null)
       }
     }
-
     document.addEventListener("mousedown", handleClickOutside)
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside)
-    }
+    return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  // Fetch credits and start timer
+  // Fetch credits + timer
   useEffect(() => {
     if (!isLoaded || !user?.id) return
 
@@ -60,8 +98,6 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
           const data: CreditsData = await res.json()
           setCreditsData(data)
           setTimeLeft(data.secondsUntilNextRegen)
-        } else {
-          console.error(`Failed to fetch credits: ${res.status} ${res.statusText}`)
         }
       } catch (err) {
         console.error("Failed to fetch credits:", err)
@@ -70,7 +106,6 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
 
     fetchCredits()
 
-    if (timerRef.current) clearInterval(timerRef.current)
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -92,31 +127,48 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
       try {
         const token = await getToken()
         const response = await fetch(`/api/projects/${projectId}/deployment`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
         })
 
-        if (!response.ok) {
-          return // No deployment yet, or error - just keep null
+        if (response.ok) {
+          const data = await response.json()
+          if (data.deploymentUrl && data.updatedAt) {
+            setDeployment({
+              deploymentUrl: data.deploymentUrl,
+              updatedAt: data.updatedAt,
+            })
+          }
         }
-
-        const data = await response.json()
-        setDeployedUrl(data.deploymentUrl || null)
       } catch (error) {
-        console.error("[v0] Error fetching deployment:", error)
+        console.error("[Navbar] Error fetching deployment:", error)
       }
     }
 
     fetchDeployment()
   }, [projectId, getToken])
 
-  const handleDeploy = async () => {
-    setIsDeploying(true)
+  // Fetch project sharing settings
+  useEffect(() => {
+    const fetchProjectSettings = async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}`)
+        if (res.ok) {
+          const data = await res.json()
+          setIsPublic(data.isPublic || false)
+        }
+      } catch (err) {
+        console.error("[Navbar] Failed to fetch project settings:", err)
+      }
+    }
+
+    fetchProjectSettings()
+  }, [projectId])
+
+  // Publish
+  const handlePublish = async () => {
+    setIsPublishing(true)
     try {
       const token = await getToken()
-
       const response = await fetch(`/api/projects/${projectId}/deploy`, {
         method: "POST",
         headers: {
@@ -125,22 +177,79 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
         },
       })
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || "Deployment failed")
-      }
+      if (!response.ok) throw new Error("Deployment failed")
 
       const data = await response.json()
-      setDeployedUrl(data.deploymentUrl)
+      setDeployment({
+        deploymentUrl: data.deploymentUrl,
+        updatedAt: new Date().toISOString(),
+      })
 
-      console.log("[v0] Deployment successful:", data.deploymentUrl)
       window.open(data.deploymentUrl, "_blank", "noopener,noreferrer")
     } catch (error) {
-      console.error("[v0] Deployment error:", error)
       alert(`Failed to deploy: ${error instanceof Error ? error.message : "Unknown error"}`)
     } finally {
-      setIsDeploying(false)
+      setIsPublishing(false)
     }
+  }
+
+  const handleCopyDeploymentUrl = async () => {
+    if (deployment?.deploymentUrl) {
+      await navigator.clipboard.writeText(deployment.deploymentUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  // Sharing feature handlers
+  const generateShareUrl = async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/share`, { method: "POST" })
+      if (res.ok) {
+        const data = await res.json()
+        const url = `${window.location.origin}/share/${data.shareToken}`
+        setShareUrl(url)
+        return url
+      }
+    } catch (err) {
+      console.error("[Navbar] Failed to generate share URL:", err)
+    }
+    return ""
+  }
+
+  const handlePublicToggle = async (checked: boolean) => {
+    setShareLoading(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: checked }),
+      })
+
+      if (res.ok) {
+        setIsPublic(checked)
+        if (checked) {
+          const url = await generateShareUrl()
+          if (url) setShareUrl(url)
+        }
+      }
+    } catch (err) {
+      console.error("[Navbar] Failed to update project privacy:", err)
+    } finally {
+      setShareLoading(false)
+    }
+  }
+
+  const handleCopyShareLink = async () => {
+    let url = shareUrl
+    if (!url) {
+      url = await generateShareUrl()
+      if (!url) return
+    }
+
+    await navigator.clipboard.writeText(url)
+    setShareCopied(true)
+    setTimeout(() => setShareCopied(false), 2000)
   }
 
   return (
@@ -150,62 +259,181 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
           <img width={140} className="relative top-[-1px]" src="/logo_light.png" alt="Logo" />
         </Link>
 
-        <div className="flex items-center gap-2 absolute right-3 mb-2">
+        <div className="flex items-center gap-2 absolute right-3">
           {user ? (
             <>
+              {/* Download */}
               <button
-                id="download-button"
                 onClick={handleDownload}
                 className={cn(
-                  "flex items-center gap-1 text-sm px-2 py-1 rounded transition-colors cursor-pointer bg-[#e4e4e4] hover:bg-[#e7e7e7] text-black"
+                  "flex items-center gap-1 text-sm px-3 py-1.5 rounded transition-colors cursor-pointer",
+                  "bg-[#e4e4e4] hover:bg-[#e7e7e7] text-black"
                 )}
                 title="Download project as ZIP"
               >
                 Download
               </button>
-              <button
-                onClick={handleDeploy}
-                disabled={isDeploying}
-                className={cn(
-                  "flex items-center gap-1 text-sm px-2 py-1 rounded transition-colors cursor-pointer",
-                  isDeploying ? "bg-gray-300 text-gray-500 cursor-not-allowed" : "bg-[#2b2525] hover:bg-[#2b2525ce] text-white",
-                )}
-                title="Deploy to production"
-              >
-                {isDeploying ? "Publishing your site..." : "Publish"}
-              </button>
 
-              {/* {deployedUrl && (
-                <a
-                  href={deployedUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-500 hover:underline px-2 py-1"
-                  title="Open deployed site"
+              {/* Share Button */}
+              <div className="relative" ref={shareRef}>
+                <button
+                  onClick={() => setOpenDropdown(openDropdown === "share" ? null : "share")}
+                  className={cn(
+                    "flex items-center gap-1.5 text-sm px-3 py-1.5 rounded transition-colors cursor-pointer",
+                    "bg-[#2b2525] hover:bg-[#3a3434] text-white"
+                  )}
                 >
-                  {deployedUrl}
-                </a>
-              )}
-               */}
-
-              {/* Credits display */}
-              {/* {creditsData && (
-                <button className="text-black/90 text-[12px] p-1 px-2.5">
-                  <span className="flex items-center gap-2 bg-[#e4e4e4] rounded-md px-2 py-1">
-                    <img
-                      src="/icons/credit-card.png"
-                      alt="Credits icon"
-                      width={16}
-                      height={16}
-                      className="opacity-80"
-                    />
-                    <span>{creditsData.credits} credits remaining</span>
-                  </span>
+                  <Share2 size={16} />
+                  Share
                 </button>
-              )} */}
-              {/* Profile button */}
+
+                {openDropdown === "share" && (
+                  <div className="absolute top-full right-0 mt-[-10px] w-80 bg-[#e4e4e4] border rounded-lg z-50 p-4">
+                    <h3 className="font-semibold text-base mb-4">Share Project</h3>
+
+                    <div className="space-y-5">
+                      {/* Public toggle */}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Make Public</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Allow others to view & request collaboration
+                          </p>
+                        </div>
+                        <Switch
+                          checked={isPublic}
+                          onCheckedChange={handlePublicToggle}
+                          disabled={shareLoading}
+                        />
+                      </div>
+
+                      {/* Share link section */}
+                      {isPublic && (
+                        <div className="pt-3 border-t">
+                          <p className="text-sm font-medium mb-2">Share Link</p>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={shareUrl || (shareLoading ? "Generating..." : "Click to generate")}
+                              readOnly
+                              className="flex-1 px-3 py-2 text-sm border rounded bg-gray-50 focus:outline-none"
+                            />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={handleCopyShareLink}
+                              disabled={!shareUrl && !shareLoading}
+                            >
+                              {shareCopied ? (
+                                <Check className="h-4 w-4 text-green-600" />
+                              ) : (
+                                <Copy className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-2">
+                            Anyone with this link can see the project and request access
+                          </p>
+                        </div>
+                      )}
+
+                      {!isPublic && (
+                        <p className="text-xs text-gray-500 pt-3 border-t">
+                          Turn on public sharing to generate a collaboration link
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Publish Button */}
+              <div className="relative" ref={publishDropdownRef}>
+                <button
+                  onClick={() => setOpenDropdown(openDropdown === "publish" ? null : "publish")}
+                  className={cn(
+                    "flex items-center gap-1 text-sm px-3 py-1.5 rounded transition-colors cursor-pointer",
+                    isPublishing
+                      ? "bg-gray-700 text-gray-400 cursor-not-allowed"
+                      : "bg-[#2b2525] hover:bg-[#3a3434] text-white"
+                  )}
+                  disabled={isPublishing}
+                >
+                  {isPublishing ? "Publishing..." : "Publish"}
+                </button>
+
+                {openDropdown === "publish" && (
+                  <div className="absolute top-full right-0 mt-[-10px] w-80 bg-[#e4e4e4] border rounded-lg z-50 overflow-hidden">
+                    <div className="p-4">
+                      <h3 className="font-semibold text-sm text-gray-900 mb-3">Publish Your Site</h3>
+
+                      {/* Deployment URL */}
+                      <div className="mb-4">
+                        <label className="text-xs text-gray-500 mb-1.5 block">Site URL</label>
+                        {deployment?.deploymentUrl ? (
+                          <div className="flex items-center gap-2 p-2.5 bg-gray-50 rounded border">
+                            <a
+                              href={deployment.deploymentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-blue-600 hover:underline truncate flex-1"
+                            >
+                              {deployment.deploymentUrl}
+                            </a>
+                            <button
+                              onClick={handleCopyDeploymentUrl}
+                              className="p-1.5 hover:bg-gray-200 rounded"
+                              title="Copy URL"
+                            >
+                              {copied ? (
+                                <Check className="w-4 h-4 text-green-600" />
+                              ) : (
+                                <Copy className="w-4 h-4 text-gray-600" />
+                              )}
+                            </button>
+                            <a
+                              href={deployment.deploymentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 hover:bg-gray-200 rounded"
+                              title="Open in new tab"
+                            >
+                              <ExternalLink className="w-4 h-4 text-gray-600" />
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="p-3 bg-gray-50 rounded border border-dashed text-center text-sm text-gray-400">
+                            Not deployed yet
+                          </div>
+                        )}
+                      </div>
+
+                      <Button
+                        onClick={handlePublish}
+                        disabled={isPublishing}
+                        className="w-full"
+                        size="sm"
+                      >
+                        {isPublishing
+                          ? "Publishing..."
+                          : deployment
+                          ? "Update Deployment"
+                          : "Publish Now"}
+                      </Button>
+
+                      {deployment?.updatedAt && (
+                        <p className="text-xs text-gray-500 mt-4 text-center">
+                          Last updated {formatDistanceToNow(new Date(deployment.updatedAt), { addSuffix: true })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Profile */}
               <button
-                onClick={() => setOpen(!open)}
+                onClick={() => setOpenDropdown(openDropdown === "profile" ? null : "profile")}
                 className="w-8 h-8 rounded-full overflow-hidden focus:outline-none cursor-pointer"
               >
                 <img
@@ -215,82 +443,66 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                 />
               </button>
 
-              {/* Dropdown */}
-              <div
-                ref={dropdownRef}
-                className={`absolute mt-56 right-0 w-56 bg-[#141414] border border-[#3b3b3f2f] rounded-lg shadow-lg z-50 transition-all duration-200 ease-in-out transform ${
-                  open ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'
-                }`}
-              >
-                <div className="flex flex-col p-1">
-                  {/* Next credits */}
-                  {creditsData && (
+              {/* Profile Dropdown */}
+              {openDropdown === "profile" && (
+                <div
+                  ref={dropdownRef}
+                  className="absolute top-full right-0 mt-[-10px] w-60 bg-[#e4e4e4] border rounded-lg z-50 transition-all duration-200"
+                >
+                  <div className="flex flex-col p-1.5">
+                    {creditsData && (
+                      <div className="hover:bg-gray-50 rounded-sm p-1 cursor-pointer flex items-center gap-3 w-full text-sm px-2 py-2.5 text-gray-200">
+                        Next credits in{" "}
+                        <span className="font-mono">
+                          {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}
+                        </span>
+                      </div>
+                    )}
+
+                    <Link href="/projects" className="hover:bg-gray-50 rounded-sm p-1 cursor-pointer">
+                      <button className="flex items-center gap-3 cursor-pointer w-full text-sm px-2 py-2.5 hover:bg-[#2e2e2e] text-gray-200 rounded">
+                        Projects
+                      </button>
+                    </Link>
+
+                    <Link href="/legal/privacy" className="hover:bg-gray-50 rounded-sm p-1 cursor-pointer">
+                      <button className="flex items-center gap-3 w-full cursor-pointer text-sm px-2 py-2.5 hover:bg-[#2e2e2e] text-gray-200 rounded">
+                        Privacy Policy
+                      </button>
+                    </Link>
+
                     <button
-                      onClick={() => setOpen(false)}
-                      className="flex items-center gap-2 w-full text-[13px] text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white rounded-md cursor-default"
+                      onClick={() => {
+                        clerk.openUserProfile()
+                        setOpenDropdown(null)
+                      }}
+                      className="flex items-center gap-3 w-full text-sm px-2 p-1 py-2.5 hover:bg-gray-50 rounded-sm text-gray-200 cursor-pointer"
                     >
-                      <img src="/icons/CreditsIcon.png" className="mr-2 opacity-80" width={20} alt=""/>
-                      <span>
-                        Next credits in {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}
-                      </span>
+                      Manage Account
                     </button>
-                  )}
 
-                  {/* Projects */}
-                  <Link href="/projects">
                     <button
-                      onClick={() => setOpen(false)}
-                      className="flex items-center gap-2 w-full text-[13px] text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white rounded-md cursor-default"
+                      onClick={() => {
+                        clerk.signOut()
+                        setOpenDropdown(null)
+                      }}
+                      className="flex items-center gap-3 w-full text-sm px-2 py-2.5 p-1 text-gray-200 hover:bg-gray-50 rounded-sm cursor-pointer"
                     >
-                      <img src="/icons/project.png" className="mr-2 opacity-80" width={20} alt="" />
-                      <span>Projects</span>
+                      Logout
                     </button>
-                  </Link>
-
-                  {/* Privacy Policy */}
-                  <Link href="/legal/privacy">
-                    <button
-                      onClick={() => setOpen(false)}
-                      className="flex items-center gap-2 w-full text-[13px] text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white rounded-md cursor-default"
-                    >
-                      <img src="/icons/privacy-policy.png" className="mr-2 opacity-80" width={20} alt="" />
-                      <span>Privacy Policy</span>
-                    </button>
-                  </Link>
-
-                  {/* Manage Account */}
-                  <button
-                    onClick={() => {
-                      clerk.openUserProfile()
-                      setOpen(false)
-                    }}
-                    className="flex items-center gap-2 w-full text-[13px] text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white rounded-md cursor-default"
-                  >
-                    <img src="/icons/user.png" className="mr-2 opacity-80" width={20} alt="" />
-                    <span>Manage Account</span>
-                  </button>
-
-                  {/* Logout */}
-                  <button
-                    onClick={() => {
-                      clerk.signOut()
-                      setOpen(false)
-                    }}
-                    className="flex items-center gap-2 w-full text-[13px] text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white rounded-md cursor-default"
-                  >
-                    <img src="/icons/logout.png" className="mr-2 opacity-80" width={20} alt="" />
-                    <span>Logout</span>
-                  </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           ) : (
             <>
               <Link href="/sign-in">
-                <button className="text-sm font-medium cursor-pointer text-white">Sign In</button>
+                <button className="text-sm font-medium text-white hover:text-gray-300">
+                  Sign In
+                </button>
               </Link>
               <Link href="/sign-up">
-                <button className="text-sm font-medium cursor-pointer w-[70px] bg-[#ff8c00c0] p-1 rounded-md text-[#e9e9e9]">
+                <button className="text-sm font-medium px-4 py-1.5 rounded bg-[#ff8c00c0] hover:bg-[#ff8c00e0] text-white">
                   Sign Up
                 </button>
               </Link>

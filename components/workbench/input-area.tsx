@@ -33,11 +33,12 @@ export function InputArea({ isAuthenticated }: InputAreaProps) {
       )}
       {!showIdeas && isAuthenticated && (
         <div className="flex flex-wrap justify-center items-center gap-3 mt-3 w-full px-4">
+          <span className="text-[15px] text-[#202020a8]">or import from</span>
           <GithubClone />
           {/* <FigmaImport /> */}
           <button
             onClick={() => setShowIdeas(true)}
-            className="hidden h-8 sm:flex text-sm font-medium cursor-pointer border border-[#dbd9d965] py-1 px-4 hover:border-[#c1603c56] rounded-4xl bg-[#ffffff] text-[#000000] items-center gap-2 w-full sm:w-auto"
+            className="hidden h-8 sm:flex text-sm font-medium cursor-pointer bg-[#e4e4e4a8] hover:bg-[#e4e4e480] border border-[#dbd9d965] py-1 px-4 rounded-4xl text-[#000000] items-center gap-2 w-full sm:w-auto"
           >
             <Lightbulb size={16} className="h-4 w-4" />
             <span className="font-sans font-light">Suggestions</span>

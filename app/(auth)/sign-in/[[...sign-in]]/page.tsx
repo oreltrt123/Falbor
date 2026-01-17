@@ -5,6 +5,7 @@ import type { OAuthStrategy } from "@clerk/types"
 import Link from "next/link"
 // import RotatingEarth from "@/components/ui/dotted-globe";
 import FeatureShowcase from '@/components/auth/FeatureShowcase'
+import FeatureShowcaseDark from "@/components/auth/FeatureShowcaseDark"
 
 export default function Page() {
   const { signIn, isLoaded, setActive } = useSignIn()
@@ -78,17 +79,17 @@ export default function Page() {
   }
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center p-4 bg-[#161616] overflow-x-hidden md:overflow-y-hidden">
+    <div className="relative min-h-screen flex items-center justify-center p-4 bg-[#ffffff] overflow-x-hidden md:overflow-y-hidden">
       {/* Login Form */}
-      <div className="w-full max-w-xs rounded-xl p-6 bg-transparent md:-translate-x-16 md:mr-40">
-        <h1 className="text-2xl font-light text-center text-white mr-30">Welcome to <img src="/logo.png" width={100} className="absolute mt-[-64px] ml-36" alt="" /></h1>
+      <div className="w-full max-w-xs rounded-xl p-6 bg-transparent md:-translate-x-16 md:mr-40 z-[9999]">
+        <h1 className="text-2xl font-light text-center text-black mr-30">Welcome to <img src="/logo_light.png" width={142} className="absolute mt-[-64px] ml-36" alt="" /></h1>
         <h1 className="text-2xl font-light text-center mb-4 text-[#939494]">Start building now</h1>
 
         <form onSubmit={handleLogin} className="flex flex-col gap-2">
           <input
             type="text"
             placeholder="Email"
-            className="px-3 py-1 text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
+            className="px-3 py-1 text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -96,19 +97,19 @@ export default function Page() {
           <input
             type="password"
             placeholder="Password"
-            className="px-3 py-1 text-[13px] border border-[#272727] focus:border-[#65c0fc57] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
+            className="px-3 py-1 text-[13px] border border-[#e4e4e4a8] focus:border-[#c15f3c] rounded-md focus:outline-none text-[#939494] placeholder:text-[#939494] placeholder:text-[13px]"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
           {error && <div className="text-red-500 text-xs text-center">{error}</div>}
-          <button className="mt-2 bg-[#0099FF] text-white py-1 rounded-md text-sm cursor-pointer">Log in</button>
+          <button className="mt-2 bg-[#c15f3c] text-white py-1 rounded-md text-sm cursor-pointer">Log in</button>
         </form>
 
         <div className="flex flex-col gap-2 mt-4">
           <button
             onClick={handleOAuthGoogle}
-            className="flex items-center justify-center gap-2 rounded-md py-1 bg-[#272727] hover:bg-[#2e2d2d] text-[#bec2c2] text-sm cursor-pointer"
+            className="flex items-center justify-center gap-2 rounded-md py-1 bg-[#e4e4e4a8] hover:bg-[#d6d6d6a8] text-[#3b3b3b] text-sm cursor-pointer"
             disabled={loadingProvider !== null}
           >
             <img alt="Google" src="/googlelogo.png" className="w-4 h-4" />
@@ -116,7 +117,7 @@ export default function Page() {
           </button>
           <button
             onClick={handleOAuthGithub}
-            className="flex items-center justify-center gap-2 rounded-md py-1 bg-[#272727] hover:bg-[#2e2d2d] text-[#bec2c2] text-sm cursor-pointer"
+            className="flex items-center justify-center gap-2 rounded-md py-1 bg-[#e4e4e4a8] hover:bg-[#d6d6d6a8] text-[#3b3b3b] text-sm cursor-pointer"
             disabled={loadingProvider !== null}
           >
             <img alt="GitHub" src="/githublogo.png" className="w-4 h-4" />
@@ -125,14 +126,14 @@ export default function Page() {
         </div>
 
         <p className="text-center text-xs text-[#939494] mt-4">
-          New in Falbor? <Link href={'/sign-up'} className="text-[#0099ffc7]">Sign up</Link>
+          New in Falbor? <Link href={'/sign-up'} className="text-[#c15f3c]">Sign up</Link>
         </p>
       </div>
 
       {/* Globe on the right side - hidden on mobile */}
       <div className="hidden md:block absolute inset-y-0 right-0 z-0 flex items-center pr-4">
         <div className="relative left-[120px] top-[130px] w-[600px] h-[600px] sm:w-[700px] sm:h-[700px] md:w-[800px] md:h-[800px] lg:w-[900px] lg:h-[900px]">
-          <FeatureShowcase />
+          <FeatureShowcaseDark />
         </div>
       </div>
     </div>

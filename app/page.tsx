@@ -7,6 +7,7 @@ import HeroSection from "@/components/layout/HeroSection"
 import Features from '@/components/layout/features'
 import FAQ from '@/components/layout/faq'
 import HeroText from "@/components/layout/hero"
+import CompanyLogos from "@/components/layout/LogsCompanySection"
 
 export default async function HomePage() {
   const { userId } = await auth()
@@ -15,12 +16,12 @@ export default async function HomePage() {
       <div className="relative z-10 flex flex-col min-h-screen">
         <main 
           className="flex flex-1 flex-col items-center justify-center px-4 w-full"
-          style={{
-           backgroundImage: `url("/bg/bg.png")`,
-           backgroundRepeat: "no-repeat",
-           backgroundSize: "cover",
-           backgroundPosition: "center",
-           }}
+          // style={{
+          //  backgroundImage: `url("/bg/bg.png")`,
+          //  backgroundRepeat: "no-repeat",
+          //  backgroundSize: "cover",
+          //  backgroundPosition: "center",
+          //  }}
           >
           <div className="w-full flex flex-col items-center space-y-8 mt-[-140px] ml-5 relative z-10">
             {/* <img src="/bg/bg-text.png" className="absolute top-[-40vh] ml-[140px] opacity-25" width={800} alt="" /> */}
@@ -41,7 +42,10 @@ export default async function HomePage() {
       <div className="top-[-60px] relative">
        {!userId && <FAQ />}
       </div>
-      {/* <Footer /> */}
+      <div className="top-[-60px] relative">
+       {!userId && <CompanyLogos />}
+      </div>
+      <Footer />
     </div>
   )
 }

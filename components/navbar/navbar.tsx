@@ -1,374 +1,299 @@
-// Navbar.tsx
 "use client"
 
 import Link from "next/link"
-import { useUser, useClerk } from "@clerk/nextjs"
+import { useUser, useClerk, useAuth } from "@clerk/nextjs"
 import { useState, useRef, useEffect } from "react"
-import { Settings } from 'lucide-react'
-import { israelTimeToUTC, utcToIsraelTime } from "@/lib/common/timezone/timezone-utils"
-import { AutomationDialog } from "@/components/models/AutomationDialog" // Adjust path as needed
-import { Badge } from "../ui/badge"
+import { Download, Share2, Copy, Check, Loader2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
-interface CreditsData {
-  credits: number
-  secondsUntilNextRegen: number
-  pendingGift?: number
-  pendingMonthly?: number
-  subscriptionTier: string
+interface NavbarProps {
+  projectId: string
+  handleDownload: () => void
 }
 
-interface AutomationSettings {
-  selectedModel: string
-  dailyTime: string // "HH:MM:SS" UTC stored internally
-  maxMessages: number
-  isActive: boolean
-  timezone: string
+interface Collaborator {
+  userId: string
+  imageUrl: string
+  name: string
 }
 
-interface ModelOption {
-  label: string
-  icon: string
-  color: string
-  soon?: string
-}
-
-export type ModelType = "gemini" | "claude" | "gpt" | "deepseek" | "gptoss"
-
-export function Navbar() {
+export function Navbar({ projectId, handleDownload }: NavbarProps) {
   const { user, isLoaded } = useUser()
+  const { getToken } = useAuth()
   const clerk = useClerk()
-  const [open, setOpen] = useState(false)
-  const [automationOpen, setAutomationOpen] = useState(false)
-  const [automationSettings, setAutomationSettings] = useState<AutomationSettings | null>(null)
-  const [loading, setLoading] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  const [creditsData, setCreditsData] = useState<CreditsData | null>(null)
-  const [timeLeft, setTimeLeft] = useState(0)
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Fetch automation settings
-  const fetchAutomation = async () => {
-    if (!user?.id || !isLoaded) return
-    try {
-      const res = await fetch("/api/automation")
-      if (res.ok) {
-        const data = await res.json()
-        setAutomationSettings(data)
-      }
-    } catch (err) {
-      console.error("Failed to fetch automation:", err)
-    }
-  }
+  const [profileOpen, setProfileOpen] = useState(false)
+  const profileRef = useRef<HTMLDivElement>(null)
 
+  // Share states
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareToken, setShareToken] = useState<string | null>(null)
+  const [isPublic, setIsPublic] = useState<boolean | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [shareCopied, setShareCopied] = useState(false)
+  const [shareError, setShareError] = useState<string | null>(null)
+  const shareRef = useRef<HTMLDivElement>(null)
+
+  // Collaborators
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([])
+
+  const shareUrl =
+    shareToken && typeof window !== "undefined"
+      ? `${window.location.origin}/share/${shareToken}`
+      : null
+
+  // Close dropdowns on outside click
   useEffect(() => {
-    fetchAutomation()
-  }, [user?.id, isLoaded])
+    const handleClickOutside = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false)
+      if (shareRef.current && !shareRef.current.contains(e.target as Node)) setShareOpen(false)
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
 
+  // Load project + share + collaborators
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setOpen(false)
-      }
-    }
+    if (!isLoaded || !user || !projectId) return
 
-    if (open) {
-      document.addEventListener("mousedown", handleClickOutside)
-    } else {
-      document.removeEventListener("mousedown", handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside)
-    }
-  }, [open])
-
-  const fetchCredits = async () => {
-    if (!user?.id || !isLoaded) return
-    try {
-      const res = await fetch("/api/user/credits")
-      if (res.ok) {
-        const data: CreditsData = await res.json()
-        setCreditsData(data)
-        setTimeLeft(data.secondsUntilNextRegen)
-      } else {
-        console.error(`Failed to fetch credits: ${res.status} ${res.statusText}`)
-      }
-    } catch (err) {
-      console.error("Failed to fetch credits:", err)
-    }
-  }
-
-  useEffect(() => {
-    fetchCredits()
-
-    if (timerRef.current) clearInterval(timerRef.current)
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          fetchCredits()
-          return 60
-        }
-        return prev - 1
-      })
-    }, 1000)
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [user?.id, isLoaded])
-
-  const refetchCredits = async () => {
-    if (!user?.id) return
-    await fetchCredits()
-  }
-
-  // Handle save automation
-  const saveAutomation = async (settings: AutomationSettings) => {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/automation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
-      })
-      if (res.ok) {
-        setAutomationSettings(await res.json())
-        alert("✅ Settings saved successfully!")
-      } else {
-        alert("❌ Failed to save settings.")
-      }
-    } catch (err) {
-      console.error("Save failed:", err)
-      alert("❌ Error saving settings.")
-    } finally {
-      setLoading(false)
-      setAutomationOpen(false)
-    }
-  }
-
-  // Test Now: Manual trigger for this user
-  const testNow = async () => {
-    if (!user?.id) return
-    if (!automationSettings?.isActive) return alert("⚠️ Please activate automation first!")
-    if (confirm("🧪 Simulate daily run now? This will deduct credits and create a new project.")) {
+    const loadData = async () => {
       try {
-        const res = await fetch(`/api/cron/daily?test=true`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: user.id }),
+        const token = await getToken()
+
+        // 1. Project
+        const projectRes = await fetch(`/api/projects/${projectId}`, {
+          headers: { Authorization: `Bearer ${token}` },
         })
-        if (res.ok) {
-          alert("✅ Test run triggered! Check your /projects page in 10 seconds for the new creation.")
-          refetchCredits()
-        } else {
-          const err = await res.text()
-          alert(`❌ Test failed: ${err || "Unknown error—check server logs."}`)
+
+        if (projectRes.ok) {
+          const data = await projectRes.json()
+          setIsPublic(data.isPublic ?? false)
+        }
+
+        // 2. Share token
+        const shareRes = await fetch(`/api/projects/${projectId}/share`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+
+        if (shareRes.ok) {
+          const data = await shareRes.json()
+          if (data.shareToken) setShareToken(data.shareToken)
+        }
+
+        // 3. Collaborators
+        const collabRes = await fetch(`/api/projects/${projectId}/collaborators`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+
+        if (collabRes.ok) {
+          const data = await collabRes.json()
+          setCollaborators(data.collaborators || [])
         }
       } catch (err) {
-        alert("❌ Error: " + (err as Error).message)
+        console.error("Failed to load navbar data:", err)
       }
     }
-  }
 
-  const modelOptions: Record<ModelType, ModelOption> = {
-    gemini: { label: "Gemini 2.0", icon: "/icons/gemini.png", color: "text-blue-400" },
-    claude: { label: "Claude Sonnet 4.5", icon: "/icons/claude.png", color: "text-purple-400" },
-    gpt: { label: "GPT-5", icon: "/icons/openai.png", color: "text-green-400" },
-    deepseek: { label: "Deepseek R3", icon: "/icons/deepseek.png", color: "text-teal-400" },
-    gptoss: { label: "GPT-OSS 20B", icon: "/icons/openai.png", color: "text-green-400" },
-  }
+    loadData()
+  }, [isLoaded, user, projectId, getToken])
 
-  const parseTime = (utcTime24: string) => {
-    if (!utcTime24) {
-      const default_israel = utcToIsraelTime("11", "00", "00")
-      return { ...default_israel, hour: default_israel.hour || 14 }
+  // Create share link
+  const createShareLink = async () => {
+    if (generating) return
+    setGenerating(true)
+    setShareError(null)
+
+    try {
+      const token = await getToken()
+
+      if (isPublic === false) {
+        await fetch(`/api/projects/${projectId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ isPublic: true }),
+        })
+        setIsPublic(true)
+      }
+
+      const postRes = await fetch(`/api/projects/${projectId}/share`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const data = await postRes.json()
+      setShareToken(data.shareToken)
+    } catch (err: any) {
+      setShareError(err.message || "Failed to create share link")
+    } finally {
+      setGenerating(false)
     }
-
-    const parts = utcTime24.split(":")
-    const israelTime = utcToIsraelTime(parts[0] || "11", parts[1] || "00", parts[2] || "00")
-    return israelTime
   }
 
-  const currentParsed = automationSettings ? parseTime(automationSettings.dailyTime) : { hour: 14, minute: 0, second: 0, timezone: "UTC+2 (IST)" }
-
-  const updateTime = (key: "hour" | "minute" | "second" | "ampm", val: number | string) => {
-    if (!automationSettings) return
-    let newSettings = { ...automationSettings }
-
-    // For now, we assume all input is in 24-hour Israel time
-    // Convert to UTC internally
-    const newUtcTime = israelTimeToUTC(
-      key === "hour" ? Number(val) : currentParsed.hour,
-      key === "minute" ? Number(val) : currentParsed.minute,
-      key === "second" ? Number(val) : currentParsed.second,
-    )
-
-    newSettings.dailyTime = newUtcTime
-    setAutomationSettings(newSettings)
+  const copyShare = async () => {
+    if (!shareUrl) return
+    await navigator.clipboard.writeText(shareUrl)
+    setShareCopied(true)
+    setTimeout(() => setShareCopied(false), 2000)
   }
 
-  const handleSave = () => {
-    if (automationSettings) saveAutomation(automationSettings)
-  }
+  // Avatar stacking logic
+  const displayed = collaborators.slice(0, 3)
+  const extraCount = collaborators.length - 3
 
-  const handleUpdateSettings = (updater: (prev: AutomationSettings) => AutomationSettings) => {
-    setAutomationSettings((prev) => {
-      if (!prev) return prev
-      return updater(prev)
-    })
+  if (!user) {
+    return null
   }
 
   return (
-    <>
-      <nav className="z-50 fixed w-full">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <Link href="/" className="text-xl font-sans font-light text-white">
-            <img width={140} className="relative top-[-1px]" src="/logo_light.png" alt="" />
-          </Link>
-          <div className="flex flex-1 ml-10">
-            {/* {user && (
-              <Link href={"/projects"} className="text-black/80 hover:text-black/70">
-                Projects
-              </Link>
-            )}
-              <Link href={"/about"} className="text-black/80 hover:text-black/70 ml-6">
-                About
-              </Link>
-              <Link href={"/pricing"} className="text-black/80 hover:text-black/70 ml-6">
-                Pricing
-              </Link> */}
-          </div>
-          <div className="flex items-center gap-4">
-            {user ? (
-              <div className="relative top-1 flex items-center">
-                {creditsData && (
-                  <button className="text-black/90 text-[12px] mt-4 p-1 px-2.5 top-[-6px] relative">
-                    <span className="flex items-center gap-2 bg-white rounded-md px-2 py-1">
-                      <img
-                        src="/icons/credit-card.png"
-                        alt="Credits icon"
-                        width={16}
-                        height={16}
-                        className="opacity-80"
-                      />
-                      <span>{creditsData.credits} credits remaining</span>
-                    </span>
-                  </button>
-                )}
-                {creditsData && creditsData.subscriptionTier !== 'none' && (
-                  <Badge className="text-[12px] mt-4 p-1 px-2.5 top-[-6px] relative bg-blue-500 text-white">
-                    {creditsData.subscriptionTier.charAt(0).toUpperCase() + creditsData.subscriptionTier.slice(1)}
-                  </Badge>
-                )}
+    <nav className="z-50 fixed w-full bg-black/80 backdrop-blur-sm border-b border-white/10">
+      <div className="container mx-auto flex h-16 items-center justify-between px-6">
 
-                <button
-                  onClick={() => setOpen(!open)}
-                  className="w-8 h-8 rounded-full mt-1 overflow-hidden focus:outline-none cursor-pointer ml-2"
-                >
-                  <img
-                    src={user.imageUrl || "/placeholder.svg"}
-                    alt={user.firstName || "User"}
-                    className="w-full h-full object-cover"
-                  />
-                </button>
+        {/* Logo */}
+        <Link href="/" className="flex items-center">
+          <img width={140} src="/logo_light.png" alt="Logo" />
+        </Link>
 
-                <div
-                  ref={dropdownRef}
-                  className={`absolute mt-[230px] right-0 w-56 bg-[#141414] border border-[#3b3b3f2f] rounded-lg shadow-lg z-50 ${
-                    open ? "opacity-100 translate-y-0 scale-100" : "opacity-0 -translate-y-2 scale-95 pointer-events-none"
-                  }`}
-                >
-                  <div className="flex flex-col p-1">
-                    {creditsData && (
-                      <Link href={"/"} className="text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white text-sm rounded-md cursor-default">
-                        <button
-                          onClick={() => setOpen(false)}
-                          className="flex items-center gap-[2px] w-full text-[13px]"
-                        >
-                          <img src="/icons/CreditsIcon.png" className="mr-2 opacity-80" width={20} alt="" />
-                          <span className="mt-[2px]">Next credits in {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}</span>
-                        </button>
-                      </Link>
-                    )}
-                    <Link href={"/projects"} className="text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white text-sm rounded-md cursor-default">
-                      <button
-                        onClick={() => setOpen(false)}
-                        className="flex items-center gap-[2px] w-full text-[13px]"
-                      >
-                        <img src="/icons/project.png" className="mr-2 opacity-80" width={20} alt="" />
-                        <span>Projects</span>
-                      </button>
-                    </Link>
-                    <Link href={"/legal/privacy"} className="flex items-center gap-[2px] text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white text-sm rounded-md cursor-default">
-                      <button
-                        onClick={() => setOpen(false)}
-                        className="flex items-center gap-[2px] w-full text-[13px]"
-                      >
-                        <img src="/icons/privacy-policy.png" className="mr-2 opacity-80" width={20} alt="" />
-                        <span>Privacy Policy</span>
-                      </button>
-                    </Link>
-                    <button
-                      onClick={() => {
-                        setOpen(false)
-                        setAutomationOpen(true)
-                      }}
-                      className="flex items-center gap-[2px] text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white text-sm rounded-md cursor-default text-[13px]"
-                    >
-                      <Settings className="mr-2 h-4 w-4 opacity-80" />
-                      <span>Manage AI <Badge className="ml-1 bg-[#2e2e2e5d] text-white">Beta</Badge></span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        clerk.openUserProfile()
-                        setOpen(false)
-                      }}
-                      className="flex items-center gap-[2px] text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white text-sm rounded-md cursor-default text-[13px]"
-                    >
-                      <img src="/icons/user.png" className="mr-2 opacity-80" width={20} alt="" />
-                      <span>Manage Account</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        clerk.signOut()
-                        setOpen(false)
-                      }}
-                      className="flex items-center gap-[2px] text-left px-4 py-2 hover:bg-[#2e2e2e5d] text-white text-sm rounded-md cursor-default text-[13px]"
-                    >
-                      <img src="/icons/logout.png" className="mr-2 opacity-80" width={20} alt="" />
-                      <span>Logout</span>
-                    </button>
+        <div className="flex items-center gap-4">
+
+          {/* Download */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownload}
+            className="border-white/20 hover:bg-white/10 text-white"
+          >
+            <Download size={16} className="mr-2" />
+            Download
+          </Button>
+
+          {/* Share */}
+          <div className="relative" ref={shareRef}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShareOpen(v => !v)
+                if (!shareToken && !generating) createShareLink()
+              }}
+              className="border-white/20 hover:bg-white/10 text-white"
+            >
+              <Share2 size={16} className="mr-2" />
+              Share
+            </Button>
+
+            {shareOpen && (
+              <div className="absolute right-0 top-full mt-2 w-80 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl p-5 z-50">
+                <h3 className="text-white font-medium mb-4">Share Project</h3>
+
+                {generating ? (
+                  <div className="flex items-center justify-center py-8 text-zinc-400">
+                    <Loader2 className="h-5 w-5 animate-spin mr-3" />
+                    Generating link...
                   </div>
+                ) : shareUrl ? (
+                  <>
+                    <div className="flex gap-2 mb-4">
+                      <input
+                        readOnly
+                        value={shareUrl}
+                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200"
+                      />
+                      <Button size="icon" variant="ghost" onClick={copyShare}>
+                        {shareCopied ? (
+                          <Check className="h-5 w-5 text-green-500" />
+                        ) : (
+                          <Copy className="h-5 w-5 text-zinc-400" />
+                        )}
+                      </Button>
+                    </div>
+
+                    <p className="text-xs text-zinc-500">
+                      Anyone with this link can collaborate on this project.
+                    </p>
+                  </>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          {/* Collaborator Avatars */}
+          <div className="flex items-center relative">
+            {displayed.map((c, i) => (
+              <div
+                key={c.userId}
+                className="w-9 h-9 rounded-full border-2 border-black overflow-hidden"
+                style={{ marginLeft: i === 0 ? 0 : -3, zIndex: 10 - i }}
+              >
+                <img
+                  src={c.imageUrl}
+                  alt={c.name}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            ))}
+
+            {extraCount > 0 && (
+              <div
+                className="w-9 h-9 rounded-full bg-zinc-700 text-white text-xs flex items-center justify-center border-2 border-black"
+                style={{ marginLeft: -3 }}
+              >
+                +{extraCount}
+              </div>
+            )}
+          </div>
+
+          {/* Profile */}
+          <div className="relative" ref={profileRef}>
+            <button
+              onClick={() => setProfileOpen(!profileOpen)}
+              className="w-9 h-9 rounded-full overflow-hidden border-2 border-zinc-700"
+            >
+              <img
+                src={user.imageUrl || "/default-avatar.png"}
+                alt="User avatar"
+                className="w-full h-full object-cover"
+              />
+            </button>
+
+            {profileOpen && (
+              <div className="absolute right-0 top-full mt-2 w-64 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl">
+                <div className="p-4 border-b border-zinc-800">
+                  <p className="text-white font-medium">{user.firstName || user.username}</p>
+                  <p className="text-xs text-zinc-500">
+                    {user.emailAddresses?.[0]?.emailAddress}
+                  </p>
+                </div>
+
+                <div className="py-2">
+                  <Link href="/projects">
+                    <button className="w-full text-left px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800">
+                      Projects
+                    </button>
+                  </Link>
+
+                  <button
+                    onClick={() => clerk.openUserProfile()}
+                    className="w-full text-left px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800"
+                  >
+                    Manage Account
+                  </button>
+
+                  <button
+                    onClick={() => clerk.signOut()}
+                    className="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-zinc-800"
+                  >
+                    Sign Out
+                  </button>
                 </div>
               </div>
-            ) : (
-              <>
-                <Link href={"/sign-in"}>
-                  <button className="text-sm font-medium cursor-pointer text-black">Sign In</button>
-                </Link>
-                <Link href={"/sign-up"}>
-                  <button className="text-sm font-medium cursor-pointer w-[70px] bg-[#ff8c00c0] p-1 rounded-md text-[#e9e9e9]">
-                    Sign Up
-                  </button>
-                </Link>
-              </>
             )}
           </div>
-        </div>
-      </nav>
 
-      <AutomationDialog
-        open={automationOpen}
-        onOpenChange={setAutomationOpen}
-        automationSettings={automationSettings}
-        onUpdateSettings={handleUpdateSettings}
-        onSave={handleSave}
-        onTestNow={testNow}
-        loading={loading}
-        modelOptions={modelOptions}
-        currentParsed={currentParsed}
-        onUpdateTime={updateTime}
-      />
-    </>
+        </div>
+      </div>
+    </nav>
   )
 }

@@ -22,6 +22,7 @@ import {
 } from "@dnd-kit/core"
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
 
 interface Task {
   id: string
@@ -252,10 +253,10 @@ export function TasksSection({ projectId, onMessageSent }: TasksSectionProps) {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-2">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold">Tasks</h2>
+          <h2 className="text-xl font-semibold text-foreground">Tasks <Badge className="" variant="secondary">Beta</Badge></h2>
           <p className="text-sm text-muted-foreground">Manage and automate your project tasks</p>
         </div>
         <Button
