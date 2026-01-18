@@ -1,39 +1,58 @@
-import { NextApiRequest, NextApiResponse } from 'next'
-import { getAuth } from '@clerk/nextjs/server'
-import { Octokit } from '@octokit/core'
-import { db } from '@/config/db'
-import { eq } from 'drizzle-orm'
-import { userGithubConnections, files, projects } from "@/config/schema"
+import { NextRequest, NextResponse } from 'next/server';
+import { getAuth } from '@clerk/nextjs/server';
+import { Octokit } from '@octokit/core';
+import { db } from '@/config/db';
+import { eq } from 'drizzle-orm';
+import { userGithubConnections, files, projects } from "@/config/schema";
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return res.status(405).end()
+export async function POST(req: NextRequest) {
+  const { userId } = getAuth(req);
+  if (!userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
-  const { userId } = getAuth(req)
-  if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+  const { searchParams } = new URL(req.url);
+  const projectId = searchParams.get('projectId');
 
-  const projectId = req.query.projectId as string
-  const { repoName } = req.body
+  if (!projectId) {
+    return NextResponse.json({ error: 'Project ID required' }, { status: 400 });
+  }
 
-  if (!repoName) return res.status(400).json({ error: 'Repo name required' })
+  const { repoName } = await req.json();
 
-  const [connection] = await db.select().from(userGithubConnections).where(eq(userGithubConnections.userId, userId))
-  if (!connection) return res.status(404).json({ error: 'No GitHub connection' })
+  if (!repoName) {
+    return NextResponse.json({ error: 'Repo name required' }, { status: 400 });
+  }
 
-  const octokit = new Octokit({ auth: connection.accessToken })
+  const [connection] = await db
+    .select()
+    .from(userGithubConnections)
+    .where(eq(userGithubConnections.userId, userId));
+
+  if (!connection) {
+    return NextResponse.json({ error: 'No GitHub connection' }, { status: 404 });
+  }
+
+  const octokit = new Octokit({ auth: connection.accessToken });
 
   try {
-    // Create new repo
+    // 1. Create new GitHub repo
     const { data: repo } = await octokit.request('POST /user/repos', {
       name: repoName,
-      private: false, // Or true if you want private
-    })
+      private: false,
+    });
 
-    // Fetch project files from DB
-    const projectFiles = await db.select().from(files).where(eq(files.projectId, projectId))
+    // 2. Fetch project files from DB
+    const projectFiles = await db
+      .select()
+      .from(files)
+      .where(eq(files.projectId, projectId));
 
-    if (!projectFiles.length) return res.status(400).json({ error: 'No files to push' })
+    if (!projectFiles.length) {
+      return NextResponse.json({ error: 'No files to push' }, { status: 400 });
+    }
 
-    // Create blobs for each file
+    // 3. Create blobs
     const blobPromises = projectFiles.map((file) =>
       octokit.request('POST /repos/{owner}/{repo}/git/blobs', {
         owner: connection.githubUsername!,
@@ -41,47 +60,61 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         content: Buffer.from(file.content).toString('base64'),
         encoding: 'base64',
       })
-    )
-    const blobs = await Promise.all(blobPromises)
+    );
 
-    // Create tree with paths
+    const blobs = await Promise.all(blobPromises);
+
+    // 4. Create tree (FIXED TYPES)
     const tree = projectFiles.map((file, index) => ({
       path: file.path,
-      mode: '100644', // Regular file
-      type: 'blob',
+      mode: '100644' as '100644',
+      type: 'blob' as 'blob',
       sha: blobs[index].data.sha,
-    }))
+    }));
 
-    const { data: treeData } = await octokit.request('POST /repos/{owner}/{repo}/git/trees', {
-      owner: connection.githubUsername!,
-      repo: repoName,
-      tree,
-    })
+    const { data: treeData } = await octokit.request(
+      'POST /repos/{owner}/{repo}/git/trees',
+      {
+        owner: connection.githubUsername!,
+        repo: repoName,
+        tree,
+      }
+    );
 
-    // Create initial commit
-    const { data: commit } = await octokit.request('POST /repos/{owner}/{repo}/git/commits', {
-      owner: connection.githubUsername!,
-      repo: repoName,
-      message: 'Initial commit from YourSite',
-      tree: treeData.sha,
-    })
+    // 5. Create commit
+    const { data: commit } = await octokit.request(
+      'POST /repos/{owner}/{repo}/git/commits',
+      {
+        owner: connection.githubUsername!,
+        repo: repoName,
+        message: 'Initial commit from YourSite',
+        tree: treeData.sha,
+      }
+    );
 
-    // Set ref to main
+    // 6. Create main branch
     await octokit.request('POST /repos/{owner}/{repo}/git/refs', {
       owner: connection.githubUsername!,
       repo: repoName,
       ref: 'refs/heads/main',
       sha: commit.sha,
-    })
+    });
 
-    const repoUrl = repo.html_url
+    const repoUrl = repo.html_url;
 
-    // Optionally update project.githubUrl
-    await db.update(projects).set({ githubUrl: repoUrl }).where(eq(projects.id, projectId))
+    // 7. Save GitHub URL to project
+    await db
+      .update(projects)
+      .set({ githubUrl: repoUrl })
+      .where(eq(projects.id, projectId));
 
-    res.json({ repoUrl })
+    return NextResponse.json({ repoUrl });
+
   } catch (error: any) {
-    console.error(error)
-    res.status(500).json({ error: error.message || 'Failed to push to GitHub' })
+    console.error(error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to push to GitHub' },
+      { status: 500 }
+    );
   }
 }

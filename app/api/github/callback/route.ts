@@ -1,21 +1,22 @@
-import { NextApiRequest, NextApiResponse } from 'next'
-import { getAuth } from '@clerk/nextjs/server'
-import { Octokit } from '@octokit/core'
-import { db } from '@/config/db' // Your Drizzle DB instance
-import { userGithubConnections } from '@/config/schema'
+import { NextRequest, NextResponse } from 'next/server';
+import { getAuth } from '@clerk/nextjs/server';
+import { Octokit } from '@octokit/core';
+import { db } from '@/config/db'; // Your Drizzle DB instance
+import { userGithubConnections } from '@/config/schema';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { userId } = getAuth(req)
+export async function GET(req: NextRequest) {
+  const { userId } = getAuth(req);
   if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized' })
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const code = req.query.code as string
-  const state = req.query.state as string
-  const redirectTo = decodeURIComponent(state) || '/projects'
+  const { searchParams } = new URL(req.url);
+  const code = searchParams.get('code');
+  const state = searchParams.get('state');
+  const redirectTo = state ? decodeURIComponent(state) : '/projects';
 
   if (!code) {
-    return res.status(400).json({ error: 'No code provided' })
+    return NextResponse.json({ error: 'No code provided' }, { status: 400 });
   }
 
   // Exchange code for access token
@@ -30,19 +31,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       client_secret: process.env.GITHUB_CLIENT_SECRET,
       code,
     }),
-  })
+  });
 
-  const tokenData = await tokenResponse.json()
-  const accessToken = tokenData.access_token
+  const tokenData = await tokenResponse.json();
+  const accessToken = tokenData.access_token;
 
   if (!accessToken) {
-    return res.status(400).json({ error: 'Failed to get access token' })
+    return NextResponse.json({ error: 'Failed to get access token' }, { status: 400 });
   }
 
   // Get GitHub username
-  const octokit = new Octokit({ auth: accessToken })
-  const { data: userData } = await octokit.request('GET /user')
-  const githubUsername = userData.login
+  const octokit = new Octokit({ auth: accessToken });
+  const { data: userData } = await octokit.request('GET /user');
+  const githubUsername = userData.login;
 
   // Store in DB (upsert)
   await db.insert(userGithubConnections).values({
@@ -52,7 +53,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }).onConflictDoUpdate({
     target: userGithubConnections.userId,
     set: { accessToken, githubUsername, updatedAt: new Date() },
-  })
+  });
 
-  res.redirect(redirectTo)
+  return NextResponse.redirect(redirectTo);
 }
