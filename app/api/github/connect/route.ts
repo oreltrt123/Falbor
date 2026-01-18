@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
 
   const redirectUri = `${siteUrl}/api/github/callback`
 
-  const redirectTo = req.nextUrl.searchParams.get('redirectTo') || '/projects'
+  const redirectTo = req.nextUrl.searchParams.get('redirectTo') || '/chat'
   const state = encodeURIComponent(redirectTo)
 
   const authorizeUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(
