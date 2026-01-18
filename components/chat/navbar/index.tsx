@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Check,
   Share2,
+  Github,
 } from "lucide-react"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
@@ -24,6 +25,7 @@ import {
 } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
 import { formatDistanceToNow } from "date-fns"
 
 interface CreditsData {
@@ -52,12 +54,13 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
   const { getToken } = useAuth()
 
   // Single dropdown state
-  type OpenDropdown = "profile" | "publish" | "share" | null
+  type OpenDropdown = "profile" | "publish" | "share" | "github" | null
   const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null)
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const publishDropdownRef = useRef<HTMLDivElement>(null)
   const shareRef = useRef<HTMLDivElement>(null)
+  const githubRef = useRef<HTMLDivElement>(null)
 
   const [creditsData, setCreditsData] = useState<CreditsData | null>(null)
   const [timeLeft, setTimeLeft] = useState(0)
@@ -72,13 +75,21 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
   const [shareCopied, setShareCopied] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
 
+  // GitHub states
+  const [isGithubConnected, setIsGithubConnected] = useState(false)
+  const [githubRepos, setGithubRepos] = useState<string[]>([])
+  const [newRepoName, setNewRepoName] = useState("")
+  const [isPushing, setIsPushing] = useState(false)
+  const [githubError, setGithubError] = useState<string | null>(null)
+
   // Close any dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
         !dropdownRef.current?.contains(event.target as Node) &&
         !publishDropdownRef.current?.contains(event.target as Node) &&
-        !shareRef.current?.contains(event.target as Node)
+        !shareRef.current?.contains(event.target as Node) &&
+        !githubRef.current?.contains(event.target as Node)
       ) {
         setOpenDropdown(null)
       }
@@ -163,6 +174,32 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
 
     fetchProjectSettings()
   }, [projectId])
+
+  // Fetch GitHub connection status and repos
+  useEffect(() => {
+    if (!isLoaded || !user?.id) return
+
+    const fetchGithubStatus = async () => {
+      try {
+        const res = await fetch("/api/github/status")
+        if (res.ok) {
+          const { connected } = await res.json()
+          setIsGithubConnected(connected)
+          if (connected) {
+            const reposRes = await fetch("/api/github/repos")
+            if (reposRes.ok) {
+              const { repos } = await reposRes.json()
+              setGithubRepos(repos.map((r: { name: string }) => r.name))
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[Navbar] Failed to fetch GitHub status:", err)
+      }
+    }
+
+    fetchGithubStatus()
+  }, [isLoaded, user?.id])
 
   // Publish
   const handlePublish = async () => {
@@ -250,6 +287,41 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
     await navigator.clipboard.writeText(url)
     setShareCopied(true)
     setTimeout(() => setShareCopied(false), 2000)
+  }
+
+  // GitHub handlers
+  const handleConnectGithub = () => {
+    const currentPath = `/projects/${projectId}` // Adjust based on your actual route
+    window.location.href = `/api/github/connect?redirectTo=${encodeURIComponent(currentPath)}`
+  }
+
+  const handlePushToGithub = async () => {
+    if (!newRepoName) {
+      setGithubError("Enter a repo name")
+      return
+    }
+    setIsPushing(true)
+    setGithubError(null)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/github/push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoName: newRepoName }),
+      })
+      if (res.ok) {
+        const { repoUrl } = await res.json()
+        // Optionally update projects.githubUrl via another API call if needed
+        alert(`Pushed to ${repoUrl}`)
+        setNewRepoName("")
+      } else {
+        const { error } = await res.json()
+        setGithubError(error)
+      }
+    } catch (err) {
+      setGithubError("Failed to push to GitHub")
+    } finally {
+      setIsPushing(false)
+    }
   }
 
   return (
@@ -427,6 +499,73 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                         </p>
                       )}
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* GitHub Button */}
+              <div className="relative" ref={githubRef}>
+                <button
+                  onClick={() => setOpenDropdown(openDropdown === "github" ? null : "github")}
+                  className={cn(
+                    "flex items-center gap-1.5 text-sm px-3 py-1.5 rounded transition-colors cursor-pointer",
+                    "bg-[#2b2525] hover:bg-[#3a3434] text-white"
+                  )}
+                >
+                  <Github size={16} />
+                  GitHub
+                </button>
+
+                {openDropdown === "github" && (
+                  <div className="absolute top-full right-0 mt-[-10px] w-80 bg-[#e4e4e4] border rounded-lg z-50 p-4">
+                    <h3 className="font-semibold text-base mb-4">GitHub Integration</h3>
+
+                    {!isGithubConnected ? (
+                      <div>
+                        <p className="text-sm text-gray-600 mb-4">Connect your GitHub account to push projects.</p>
+                        <Button onClick={handleConnectGithub} className="w-full">
+                          Connect GitHub
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-sm font-medium mb-2">Your Repos</p>
+                          <ul className="max-h-32 overflow-y-auto border rounded p-2 bg-gray-50">
+                            {githubRepos.length > 0 ? (
+                              githubRepos.map((repo) => (
+                                <li key={repo} className="text-sm text-gray-700 py-1">
+                                  {repo}
+                                </li>
+                              ))
+                            ) : (
+                              <p className="text-sm text-gray-500">No repos found</p>
+                            )}
+                          </ul>
+                        </div>
+
+                        <div className="pt-3 border-t">
+                          <p className="text-sm font-medium mb-2">Push to New Repo</p>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="text"
+                              placeholder="New repo name"
+                              value={newRepoName}
+                              onChange={(e) => setNewRepoName(e.target.value)}
+                              className="flex-1"
+                            />
+                            <Button
+                              onClick={handlePushToGithub}
+                              disabled={isPushing || !newRepoName}
+                              size="sm"
+                            >
+                              {isPushing ? "Pushing..." : "Push"}
+                            </Button>
+                          </div>
+                          {githubError && <p className="text-xs text-red-500 mt-2">{githubError}</p>}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

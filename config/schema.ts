@@ -1,4 +1,4 @@
-// config/schema.ts
+// config/schema.ts (updated with new table for GitHub connections)
 import { pgTable, text, timestamp, uuid, jsonb, boolean, integer, serial } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 import { check } from "drizzle-orm/pg-core"
@@ -450,11 +450,28 @@ export const userSupabaseConnections = pgTable("user_supabase_connections", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
 
+/**
+ * Stores GitHub OAuth connections for each user
+ * This allows users to connect their GitHub account for pushing projects to repos
+ */
+export const userGithubConnections = pgTable("user_github_connections", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  accessToken: text("access_token").notNull(),
+  githubUsername: text("github_username"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
 export type ProjectSupabase = typeof projectSupabase.$inferSelect
 export type NewProjectSupabase = typeof projectSupabase.$inferInsert
 
 export type UserSupabaseConnection = typeof userSupabaseConnections.$inferSelect
 export type NewUserSupabaseConnection = typeof userSupabaseConnections.$inferInsert
+
+export type UserGithubConnection = typeof userGithubConnections.$inferSelect
+export type NewUserGithubConnection = typeof userGithubConnections.$inferInsert
 
 // ====================
 // TYPE INFERENCES
