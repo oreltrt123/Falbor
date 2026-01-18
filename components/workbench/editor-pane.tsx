@@ -389,7 +389,7 @@ export function EditorPane({
   </div>
 )}
           {isSidebarOpen && (
-            <div ref={sidebarRef} className="bg-white shadow-xl absolute ml-3 mt-5 rounded-lg border z-10 w-64">
+            <div ref={sidebarRef} className="bg-white shadow-xl absolute ml-3 mt-5 rounded-lg border z-10 w-64 overflow-y-scroll max-h-56">
               <FileSidebar
                 files={files}
                 onFileSelect={handleFileSelect}

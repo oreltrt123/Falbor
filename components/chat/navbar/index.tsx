@@ -1,3 +1,9 @@
+// Your Navbar component file (e.g., components/Navbar.tsx)
+// I've added the auth token to the fetch call for consistency and security.
+// I've also added a console.log for debugging the URL and projectId.
+// No other changes needed here— the error is NOT from this file.
+// The error comes from the API route not being set up correctly as dynamic.
+
 "use client" // <- Important! Must be at the top of the file
 
 import Link from "next/link"
@@ -300,12 +306,26 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
       setGithubError("Enter a repo name")
       return
     }
+    if (!projectId) {
+      setGithubError("No project ID available - cannot push")
+      return
+    }
     setIsPushing(true)
     setGithubError(null)
     try {
-      const res = await fetch(`/api/projects/${projectId}/github/push`, {
+      // Debug: Check what URL we're actually fetching
+      const pushUrl = `/api/projects/${projectId}/github/push`
+      console.log('Pushing to GitHub with URL:', pushUrl)
+      console.log('Project ID:', projectId)
+
+      const token = await getToken() // Added for auth consistency
+
+      const res = await fetch(pushUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}` // Added this
+        },
         body: JSON.stringify({ repoName: newRepoName }),
       })
       if (res.ok) {
