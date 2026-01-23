@@ -15,7 +15,7 @@ interface SettingsTabProps {
 
 export function SettingsTab({ projectId }: SettingsTabProps) {
   const [activeSection, setActiveSection] = useState<
-    "custom-knowledge" | "project-settings" | "ai-models" | "security" | "tasks" | "publish-template"
+    "custom-knowledge" | "project-settings" | "ai-models" | "security" | "automations" | "publish-template"
   >("project-settings")
 
   return (
@@ -27,7 +27,7 @@ export function SettingsTab({ projectId }: SettingsTabProps) {
         {activeSection === "custom-knowledge" && <CustomKnowledgeSection />}
         {activeSection === "ai-models" && <AIModelsSection />}
         {activeSection === "security" && <SecuritySection projectId={projectId} />}
-        {activeSection === "tasks" && <TasksSection projectId={projectId} />}
+        {activeSection === "automations" && <TasksSection projectId={projectId} />}
         {activeSection === "publish-template" && <PublishTemplateSection projectId={projectId} />}
       </div>
     </div>

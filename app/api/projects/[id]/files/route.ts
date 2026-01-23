@@ -2,8 +2,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { db } from "@/config/db"
-import { files, projects } from "@/config/schema"
-import { eq, and } from "drizzle-orm"
+import { files, projects, projectCollaborators } from "@/config/schema"
+import { eq, and, or } from "drizzle-orm"
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -14,10 +14,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const { id: projectId } = await params
 
+    // Allow access for owner OR any collaborator
     const [project] = await db
       .select()
       .from(projects)
-      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .leftJoin(
+        projectCollaborators,
+        and(
+          eq(projectCollaborators.projectId, projects.id),
+          eq(projectCollaborators.userId, userId)
+        )
+      )
+      .where(
+        and(
+          eq(projects.id, projectId),
+          or(
+            eq(projects.userId, userId),              // Owner
+            eq(projectCollaborators.userId, userId)  // Collaborator
+          )
+        )
+      )
 
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
@@ -61,10 +77,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const body = await req.json()
     const { path, content, language, type } = body
 
+    // Only allow owner or collaborator to create files
     const [project] = await db
       .select()
       .from(projects)
-      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .leftJoin(
+        projectCollaborators,
+        and(
+          eq(projectCollaborators.projectId, projects.id),
+          eq(projectCollaborators.userId, userId)
+        )
+      )
+      .where(
+        and(
+          eq(projects.id, projectId),
+          or(
+            eq(projects.userId, userId),
+            eq(projectCollaborators.userId, userId)
+          )
+        )
+      )
 
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
@@ -99,10 +131,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const body = await req.json()
     const { oldPath, newPath } = body
 
+    // Only owner or collaborator can rename
     const [project] = await db
       .select()
       .from(projects)
-      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .leftJoin(
+        projectCollaborators,
+        and(
+          eq(projectCollaborators.projectId, projects.id),
+          eq(projectCollaborators.userId, userId)
+        )
+      )
+      .where(
+        and(
+          eq(projects.id, projectId),
+          or(
+            eq(projects.userId, userId),
+            eq(projectCollaborators.userId, userId)
+          )
+        )
+      )
 
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
@@ -135,10 +183,26 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ error: "Path is required" }, { status: 400 })
     }
 
+    // Only owner or collaborator can delete
     const [project] = await db
       .select()
       .from(projects)
-      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .leftJoin(
+        projectCollaborators,
+        and(
+          eq(projectCollaborators.projectId, projects.id),
+          eq(projectCollaborators.userId, userId)
+        )
+      )
+      .where(
+        and(
+          eq(projects.id, projectId),
+          or(
+            eq(projects.userId, userId),
+            eq(projectCollaborators.userId, userId)
+          )
+        )
+      )
 
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 })

@@ -18,7 +18,7 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 
   // 2. Detect subdomain
   const hostname = req.headers.get("host") || ""
-  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.app"
+  const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz"
 
   /**
    * Examples:
@@ -34,8 +34,13 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   if (process.env.NODE_ENV === "production" && isSubdomain) {
     const subdomain = hostname.replace(`.${baseDomain}`, "")
 
+    let targetPath = `/deploy/${subdomain}${pathname}`
+    if (targetPath.endsWith('/') && targetPath !== '/') {
+      targetPath = targetPath.slice(0, -1)
+    }
+
     const url = req.nextUrl.clone()
-    url.pathname = `/deploy/${subdomain}${pathname}`
+    url.pathname = targetPath
 
     console.log("Rewriting subdomain:", hostname, "->", url.pathname)
 

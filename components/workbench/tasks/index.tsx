@@ -71,6 +71,32 @@ export function TasksSection({ projectId, onMessageSent }: TasksSectionProps) {
     fetchProjectInfo()
   }, [projectId])
 
+  useEffect(() => {
+    let interval: NodeJS.Timeout | undefined;
+    if (automation.isActive) {
+      interval = setInterval(() => {
+        fetchTasks();
+        onMessageSent?.();
+      }, 5000); // Poll every 5 seconds for live updates when automation is active
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [automation.isActive, onMessageSent, projectId]);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | undefined;
+    if (tasks.some((t) => t.status === "pending")) {
+      interval = setInterval(() => {
+        fetchTasks();
+        onMessageSent?.();
+      }, 5000); // Poll every 5 seconds if there are pending tasks
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [tasks, onMessageSent, projectId]);
+
   const fetchProjectInfo = async () => {
     try {
       const res = await fetch(`/api/projects/${projectId}`)
@@ -256,12 +282,12 @@ export function TasksSection({ projectId, onMessageSent }: TasksSectionProps) {
     <div className="p-2">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-semibold text-foreground">Tasks <Badge className="" variant="secondary">Beta</Badge></h2>
+          <h2 className="text-xl font-semibold text-foreground">Automations <Badge className="" variant="secondary">Beta</Badge></h2>
           <p className="text-sm text-muted-foreground">Manage and automate your project tasks</p>
         </div>
         <Button
-         onClick={() => setIsCreating(true)}
-         >
+          onClick={() => setIsCreating(true)}
+        >
           <Plus className="w-4 h-4 mr-2" />
           Add Task
         </Button>
@@ -281,9 +307,9 @@ export function TasksSection({ projectId, onMessageSent }: TasksSectionProps) {
               <Plus className="w-6 h-6 text-black" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold mb-2">No tasks yet</h3>
-              <p className="text-sm text-muted-foreground mb-4">Create a task by adding a name and description, or generate an idea from scratch if you don’t have one yet. Improve and refine the task as needed, then submit it and get a clear, polished result.</p>
-              <Button onClick={() => setIsCreating(true)}>
+              <h3 className="text-lg font-semibold ">No tasks yet</h3>
+              <p className="text-sm text-muted-foreground mb-3">Create a task or generate an idea, refine it, and submit for a polished result.</p>
+              <Button onClick={() => setIsCreating(true)} className="mx-auto flex items-center justify-center">
                 <Plus className="w-4 h-4 mr-2" />
                 Create Task
               </Button>

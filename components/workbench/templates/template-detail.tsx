@@ -120,7 +120,7 @@ export function TemplateDetail({ template }: TemplateDetailProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background mt-10">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         {/* Back Button */}
         <Link
@@ -265,7 +265,7 @@ export function TemplateDetail({ template }: TemplateDetailProps) {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 pt-4">
-              <Button onClick={handleViewSite} variant="outline" className="flex-1 bg-transparent">
+              <Button onClick={handleViewSite} variant="outline" className="bg-gray-300 hover:bg-gray-200 text-black flex-1">
                 <ExternalLink className="w-4 h-4 mr-2" />
                 View Site
               </Button>

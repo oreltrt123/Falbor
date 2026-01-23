@@ -443,7 +443,7 @@ const MacOSMenuBar: React.FC<MacOSMenuBarProps> = ({
     },
     {
       type: 'item',
-      label: <>Manage AI <Badge className="ml-1 bg-[#2e2e2e5d] text-white">Beta</Badge></>,
+      label: <>Automations Projects<Badge className="ml-1 bg-[#2e2e2e5d] text-white">Beta</Badge></>,
       icon: <Settings className="h-4 w-4 opacity-80" />,
       action: 'manage-ai',
     },

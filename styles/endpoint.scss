@@ -1,7 +1,7 @@
 $size: 5vmin;
 $baseColor: #ff8c00c0;
 $accent: blue;
-$ease: cubic-bezier(.33,.45,.3,1);
+$ease: cubic-bezier(.33, .45, .3, 1);
 
 @mixin full($unit) {
 	position: absolute;
@@ -21,12 +21,9 @@ $ease: cubic-bezier(.33,.45,.3,1);
 
 $accentTo: rgba(accent-to(5), .66);
 
-$baseColor: 
-	if(
-		lightness($baseColor) > 80,
+$baseColor: if(lightness($baseColor) > 80,
 		$baseColor,
-		lighten($baseColor, 80 - lightness($baseColor))
-	);
+		lighten($baseColor, 80 - lightness($baseColor)));
 
 // body {
 // 	position: fixed;
@@ -36,7 +33,7 @@ $baseColor:
 // 	align-items: center;
 // 	justify-content: center;
 // 	background: $baseColor;
-	
+
 // 	&:before {
 // 		content: '';
 // 		position: absolute;
@@ -52,77 +49,78 @@ $baseColor:
 	outline: none;
 	padding: 0;
 	border: 0;
-	
+
 	cursor: pointer;
-	
+
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	
+
 	position: relative;
-	
+
 	font-size: $size;
 	width: 1em;
 	height: 1em;
-	
+
 	opacity: 0;
 	animation: buttonIn 2s $ease forwards 2s;
-	
+
 	@keyframes buttonIn {
 		from {
 			opacity: 0;
-			transform: scale3d(1.1,1.15,1);
+			transform: scale3d(1.1, 1.15, 1);
 		}
+
 		to {
 			opacity: 1;
 			transform: none;
 		}
 	}
-	
+
 	background: none;
-	
+
 	border-radius: 50%;
-	
+
 	&:before,
 	&:after {
 		content: '';
 		border-radius: inherit;
 	}
-		
-	&:before {		
+
+	&:before {
 		filter: blur(.025em);
 		@include full(0);
-	
+
 		// $baseColor: red;
 		background:
 			radial-gradient(160% 160% at 57.5% 60%, rgba(lighten($baseColor, 6), 0) 30%, lighten($baseColor, 6) 45%), // light top left
-			radial-gradient(180% 200% at 40% 17.5%, rgba(darken($baseColor, 20), 0) 35%, darken($baseColor,20) 50%), // dark bottom right
-			radial-gradient(120% 120% at 45% 45%, rgba(darken($baseColor, 10), 0) 42%, rgba(darken($baseColor,20),.75) 50%), // darker small bottom right
-			;
-		background-color: darken($baseColor,8.66);
+			radial-gradient(180% 200% at 40% 17.5%, rgba(darken($baseColor, 20), 0) 35%, darken($baseColor, 20) 50%), // dark bottom right
+			radial-gradient(120% 120% at 45% 45%, rgba(darken($baseColor, 10), 0) 42%, rgba(darken($baseColor, 20), .75) 50%), // darker small bottom right
+		;
+		background-color: darken($baseColor, 8.66);
 
 		box-shadow:
-			inset -.05em -.05em .025em -.025em darken($baseColor,15),
-			.115em .15em .1em -.033em darken(adjust-hue($baseColor,-2.5deg), 20), // dark close
+			inset -.05em -.05em .025em -.025em darken($baseColor, 15),
+			.115em .15em .1em -.033em darken(adjust-hue($baseColor, -2.5deg), 20), // dark close
 			.15em .2em .25em darken($baseColor, 15), // dark far
 			.5em .33em .5em .1em darken($baseColor, 15), // dark furthest
 			-.1em -.1em .05em -.075em lighten($baseColor, 2), // light close
 			-.2em -.2em .33em -.075em lighten($baseColor, .5), // light far
 		;
 	}
-	
+
 	&:after {
 		@include full(.025em);
-		background: 
-			radial-gradient(150% 150% at 75% 75%, rgba(darken($baseColor, 30),0) 30%, darken($baseColor, 30)), // dark top left
-			radial-gradient(150% 150% at -10% -10%, rgba(lighten($baseColor, 3),0) 50%, lighten($baseColor, 3)) // light bottom left
+		background:
+			radial-gradient(150% 150% at 75% 75%, rgba(darken($baseColor, 30), 0) 30%, darken($baseColor, 30)), // dark top left
+			radial-gradient(150% 150% at -10% -10%, rgba(lighten($baseColor, 3), 0) 50%, lighten($baseColor, 3)) // light bottom left
 		;
 		background-color: darken($baseColor, 10);
 		transition: .75s $ease;
 		transition-delay: .25s;
 		opacity: 0;
 		filter: blur(.03em);
-		transform: scale3d(.925,.94,1);
+		transform: scale3d(.925, .94, 1);
 	}
 }
 
@@ -136,9 +134,9 @@ $baseColor:
 	z-index: 1;
 	transform: scale3d(1.05, 1.05, 1);
 	backface-visiblity: hidden;
-	
+
 	color: rgba(accent-from(5), .5);
-	
+
 	svg {
 		position: absolute;
 		top: 0;
@@ -146,7 +144,7 @@ $baseColor:
 		bottom: 0;
 		left: 0;
 	}
-	
+
 	path {
 		stroke-width: 4;
 		fill: none;
@@ -155,9 +153,9 @@ $baseColor:
 		transition: 2s $ease;
 		will-change: stroke-dashoffset, stroke, color, opacity;
 	}
-	
+
 	$glow: lighten($accent, 85 - lightness($accent));
-	
+
 	&--under {
 		margin-right: -40%;
 		mix-blend-mode: lighten;
@@ -167,40 +165,49 @@ $baseColor:
 		stroke-dashoffset: .5;
 		transition: 2s $ease;
 		animation: printPulse 2s linear infinite 6.25s;
-		
+
 		@keyframes printPulse {
-			0% { opacity: 1 }
-			50% { opacity: .33 }
-			100% { opacity: 1 }
+			0% {
+				opacity: 1
+			}
+
+			50% {
+				opacity: .33
+			}
+
+			100% {
+				opacity: 1
+			}
 		}
-		
+
 		path {
 			opacity: 0;
 			animation: printIn 2s $ease forwards 3.2s;
-			
+
 			@keyframes printIn {
 				from {
 					opacity: 0;
 					stroke-dashoffset: .5;
 				}
+
 				to {
 					opacity: 1;
 					stroke-dashoffset: 0;
 				}
 			}
-			
+
 			@for $i from 1 through 5 {
 				&:nth-of-type(#{$i}) {
 					stroke: lighten(accent-from($i), 22.5);
 				}
-			}	
+			}
 		}
 	}
-	
+
 	&--over {
 		filter:
 			drop-shadow(-0.0075em -0.0075em 0.005em rgba(0, 0, 51, 0.1)) // dark bevel
-			drop-shadow(0.0075em 0.0075em 0.005em rgba(255, 255, 255,.25)) // light bevel
+			drop-shadow(0.0075em 0.0075em 0.005em rgba(255, 255, 255, .25)) // light bevel
 			drop-shadow(0 0 0.04em currentColor) // glow
 		;
 		opacity: 0;
@@ -209,7 +216,7 @@ $baseColor:
 			color 0s .4s,
 			opacity .5s $ease,
 		;
-					
+
 		&:after {
 			content: '';
 			position: absolute;
@@ -224,64 +231,78 @@ $baseColor:
 				radial-gradient(32.5% 32.5% at 42.5% 42.5%, rgba(white, .55), rgba(white, 0)),
 			;
 			mix-blend-mode: color-dodge;
-			
+
 			transition: opacity .3s $ease;
 			animation:
 				glowPulse 3s linear infinite,
-				glowTwist 3s linear infinite
-			;
-			
+				glowTwist 3s linear infinite;
+
 			@keyframes glowPulse {
-				0% { transform: scale3d(.9,.9,1) }
-				50% { transform: scale3d(1,1,1) }
-				100% { transform: scale3d(.9,.9,1) }
+				0% {
+					transform: scale3d(.9, .9, 1)
+				}
+
+				50% {
+					transform: scale3d(1, 1, 1)
+				}
+
+				100% {
+					transform: scale3d(.9, .9, 1)
+				}
 			}
-						
+
 			@keyframes glowTwist {
-				0% { rotate: 0deg }
-				50% { rotate: 180deg }
-				100% { rotate: 360deg }
+				0% {
+					rotate: 0deg
+				}
+
+				50% {
+					rotate: 180deg
+				}
+
+				100% {
+					rotate: 360deg
+				}
 			}
 		}
-		
+
 		path {
 			opacity: 0;
 			stroke-dashoffset: 1;
 			transition:
 				stroke .5s $ease,
 				opacity 0s .5s,
-				stroke-dashoffset 0s .5s
-			;
-			
-			
+				stroke-dashoffset 0s .5s;
+
+
 			@for $i from 1 through 5 {
 				&:nth-of-type(#{$i}) {
 					stroke: accent-from($i);
 				}
 			}
-		} 
+		}
 	}
 }
 
 .button:hover,
 .button.test {
-	
+
 	&.test {
 		animation: none;
 		opacity: 1;
 		transform: none;
 		font-size: 60vmin;
 	}
-	
+
 	&:after {
 		opacity: 1;
 		transform: none;
 		transition-delay: 0s;
 	}
-	
+
 	.print {
-		transform: scale3d(1,1,1) translateZ(0);
-		
+		transform: scale3d(1, 1, 1) translateZ(0);
+
 		&--over {
 			color: $accentTo;
 			opacity: .66;
@@ -290,16 +311,16 @@ $baseColor:
 				opacity .25s $ease,
 				transform 2s $ease,
 			;
-			
+
 			&:after {
 				// opacity: 1;
 				transition: opacity 2s $ease 5.25s;
 			}
-			
+
 			path {
 				opacity: 1;
 				stroke-dashoffset: 0;
-						
+
 				@for $i from 1 through 5 {
 					&:nth-of-type(#{$i}) {
 						$delay: .25s + (.1s * $i);
@@ -308,8 +329,7 @@ $baseColor:
 							opacity .25s $ease $delay,
 							stroke-dashoffset 4s + (.2s * $i) $ease $delay,
 							stroke 1s + (.2s * $i) $ease 1.75s + (.1s * (5 - $i)) + 2.5,
-							color 1s + (.2s * $i) $ease 1.75s + (.1s * (5 - $i)) + 2.5
-						;
+							color 1s + (.2s * $i) $ease 1.75s + (.1s * (5 - $i)) + 2.5;
 					}
 				}
 			}

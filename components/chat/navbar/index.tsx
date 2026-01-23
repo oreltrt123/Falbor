@@ -1,9 +1,3 @@
-// Your Navbar component file (e.g., components/Navbar.tsx)
-// I've added the auth token to the fetch call for consistency and security.
-// I've also added a console.log for debugging the URL and projectId.
-// No other changes needed here— the error is NOT from this file.
-// The error comes from the API route not being set up correctly as dynamic.
-
 "use client" // <- Important! Must be at the top of the file
 
 import Link from "next/link"
@@ -19,7 +13,6 @@ import {
   ExternalLink,
   Check,
   Share2,
-  Github,
 } from "lucide-react"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
@@ -31,7 +24,6 @@ import {
 } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { Input } from "@/components/ui/input"
 import { formatDistanceToNow } from "date-fns"
 
 interface CreditsData {
@@ -60,13 +52,12 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
   const { getToken } = useAuth()
 
   // Single dropdown state
-  type OpenDropdown = "profile" | "publish" | "share" | "github" | null
+  type OpenDropdown = "profile" | "publish" | "share" | null
   const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null)
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const publishDropdownRef = useRef<HTMLDivElement>(null)
   const shareRef = useRef<HTMLDivElement>(null)
-  const githubRef = useRef<HTMLDivElement>(null)
 
   const [creditsData, setCreditsData] = useState<CreditsData | null>(null)
   const [timeLeft, setTimeLeft] = useState(0)
@@ -81,21 +72,13 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
   const [shareCopied, setShareCopied] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
 
-  // GitHub states
-  const [isGithubConnected, setIsGithubConnected] = useState(false)
-  const [githubRepos, setGithubRepos] = useState<string[]>([])
-  const [newRepoName, setNewRepoName] = useState("")
-  const [isPushing, setIsPushing] = useState(false)
-  const [githubError, setGithubError] = useState<string | null>(null)
-
   // Close any dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
         !dropdownRef.current?.contains(event.target as Node) &&
         !publishDropdownRef.current?.contains(event.target as Node) &&
-        !shareRef.current?.contains(event.target as Node) &&
-        !githubRef.current?.contains(event.target as Node)
+        !shareRef.current?.contains(event.target as Node)
       ) {
         setOpenDropdown(null)
       }
@@ -149,10 +132,10 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
 
         if (response.ok) {
           const data = await response.json()
-          if (data.deploymentUrl && data.updatedAt) {
+          if (data.deployment?.deploymentUrl && data.deployment?.updatedAt) {
             setDeployment({
-              deploymentUrl: data.deploymentUrl,
-              updatedAt: data.updatedAt,
+              deploymentUrl: data.deployment.deploymentUrl,
+              updatedAt: data.deployment.updatedAt,
             })
           }
         }
@@ -180,32 +163,6 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
 
     fetchProjectSettings()
   }, [projectId])
-
-  // Fetch GitHub connection status and repos
-  useEffect(() => {
-    if (!isLoaded || !user?.id) return
-
-    const fetchGithubStatus = async () => {
-      try {
-        const res = await fetch("/api/github/status")
-        if (res.ok) {
-          const { connected } = await res.json()
-          setIsGithubConnected(connected)
-          if (connected) {
-            const reposRes = await fetch("/api/github/repos")
-            if (reposRes.ok) {
-              const { repos } = await reposRes.json()
-              setGithubRepos(repos.map((r: { name: string }) => r.name))
-            }
-          }
-        }
-      } catch (err) {
-        console.error("[Navbar] Failed to fetch GitHub status:", err)
-      }
-    }
-
-    fetchGithubStatus()
-  }, [isLoaded, user?.id])
 
   // Publish
   const handlePublish = async () => {
@@ -295,55 +252,6 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
     setTimeout(() => setShareCopied(false), 2000)
   }
 
-  // GitHub handlers
-  const handleConnectGithub = () => {
-    const currentPath = `/projects/${projectId}` // Adjust based on your actual route
-    window.location.href = `/api/github/connect?redirectTo=${encodeURIComponent(currentPath)}`
-  }
-
-  const handlePushToGithub = async () => {
-    if (!newRepoName) {
-      setGithubError("Enter a repo name")
-      return
-    }
-    if (!projectId) {
-      setGithubError("No project ID available - cannot push")
-      return
-    }
-    setIsPushing(true)
-    setGithubError(null)
-    try {
-      // Debug: Check what URL we're actually fetching
-      const pushUrl = `/api/projects/${projectId}/github/push`
-      console.log('Pushing to GitHub with URL:', pushUrl)
-      console.log('Project ID:', projectId)
-
-      const token = await getToken() // Added for auth consistency
-
-      const res = await fetch(pushUrl, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}` // Added this
-        },
-        body: JSON.stringify({ repoName: newRepoName }),
-      })
-      if (res.ok) {
-        const { repoUrl } = await res.json()
-        // Optionally update projects.githubUrl via another API call if needed
-        alert(`Pushed to ${repoUrl}`)
-        setNewRepoName("")
-      } else {
-        const { error } = await res.json()
-        setGithubError(error)
-      }
-    } catch (err) {
-      setGithubError("Failed to push to GitHub")
-    } finally {
-      setIsPushing(false)
-    }
-  }
-
   return (
     <nav className="z-50 fixed w-full">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
@@ -359,8 +267,11 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                 onClick={handleDownload}
                 className={cn(
                   "flex items-center gap-1 text-sm px-3 py-1.5 rounded transition-colors cursor-pointer",
-                  "bg-[#e4e4e4] hover:bg-[#e7e7e7] text-black"
+                  "text-black hover:text-black/80 BackgroundStyle"
                 )}
+                style={{
+                  border: "1px solid #d6d4ce",
+                }}
                 title="Download project as ZIP"
               >
                 Download
@@ -372,7 +283,7 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                   onClick={() => setOpenDropdown(openDropdown === "share" ? null : "share")}
                   className={cn(
                     "flex items-center gap-1.5 text-sm px-3 py-1.5 rounded transition-colors cursor-pointer",
-                    "bg-[#2b2525] hover:bg-[#3a3434] text-white"
+                    "BackgroundStyleButton text-black/80"
                   )}
                 >
                   <Share2 size={16} />
@@ -380,7 +291,7 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                 </button>
 
                 {openDropdown === "share" && (
-                  <div className="absolute top-full right-0 mt-[-10px] w-80 bg-[#e4e4e4] border rounded-lg z-50 p-4">
+                  <div className="absolute top-full right-0 mt-[-10px] w-80 BackgroundStyleButton rounded-md z-50 p-4">
                     <h3 className="font-semibold text-base mb-4">Share Project</h3>
 
                     <div className="space-y-5">
@@ -447,7 +358,7 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                     "flex items-center gap-1 text-sm px-3 py-1.5 rounded transition-colors cursor-pointer",
                     isPublishing
                       ? "bg-gray-700 text-gray-400 cursor-not-allowed"
-                      : "bg-[#2b2525] hover:bg-[#3a3434] text-white"
+                      : "BackgroundStyleButton text-black/80"
                   )}
                   disabled={isPublishing}
                 >
@@ -455,13 +366,12 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                 </button>
 
                 {openDropdown === "publish" && (
-                  <div className="absolute top-full right-0 mt-[-10px] w-80 bg-[#e4e4e4] border rounded-lg z-50 overflow-hidden">
-                    <div className="p-4">
-                      <h3 className="font-semibold text-sm text-gray-900 mb-3">Publish Your Site</h3>
+                  <div className="absolute top-full right-0 mt-[-10px] w-80 BackgroundStyleButton rounded-md z-50 overflow-hidden">
+                    <div className="p-2">
+                      <h3 className="font-semibold text-sm text-gray-900 mb-3 px-1">Publish Your Site</h3>
 
                       {/* Deployment URL */}
-                      <div className="mb-4">
-                        <label className="text-xs text-gray-500 mb-1.5 block">Site URL</label>
+                      <div className="mb-2">
                         {deployment?.deploymentUrl ? (
                           <div className="flex items-center gap-2 p-2.5 bg-gray-50 rounded border">
                             <a
@@ -494,7 +404,7 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                             </a>
                           </div>
                         ) : (
-                          <div className="p-3 bg-gray-50 rounded border border-dashed text-center text-sm text-gray-400">
+                          <div className="p-3 bg-white rounded-md text-center text-sm text-gray-900">
                             Not deployed yet
                           </div>
                         )}
@@ -509,8 +419,8 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                         {isPublishing
                           ? "Publishing..."
                           : deployment
-                          ? "Update Deployment"
-                          : "Publish Now"}
+                            ? "Update Deployment"
+                            : "Publish Now"}
                       </Button>
 
                       {deployment?.updatedAt && (
@@ -519,73 +429,6 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                         </p>
                       )}
                     </div>
-                  </div>
-                )}
-              </div>
-
-              {/* GitHub Button */}
-              <div className="relative" ref={githubRef}>
-                <button
-                  onClick={() => setOpenDropdown(openDropdown === "github" ? null : "github")}
-                  className={cn(
-                    "flex items-center gap-1.5 text-sm px-3 py-1.5 rounded transition-colors cursor-pointer",
-                    "bg-[#2b2525] hover:bg-[#3a3434] text-white"
-                  )}
-                >
-                  <Github size={16} />
-                  GitHub
-                </button>
-
-                {openDropdown === "github" && (
-                  <div className="absolute top-full right-0 mt-[-10px] w-80 bg-[#e4e4e4] border rounded-lg z-50 p-4">
-                    <h3 className="font-semibold text-base mb-4">GitHub Integration</h3>
-
-                    {!isGithubConnected ? (
-                      <div>
-                        <p className="text-sm text-gray-600 mb-4">Connect your GitHub account to push projects.</p>
-                        <Button onClick={handleConnectGithub} className="w-full">
-                          Connect GitHub
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        <div>
-                          <p className="text-sm font-medium mb-2">Your Repos</p>
-                          <ul className="max-h-32 overflow-y-auto border rounded p-2 bg-gray-50">
-                            {githubRepos.length > 0 ? (
-                              githubRepos.map((repo) => (
-                                <li key={repo} className="text-sm text-gray-700 py-1">
-                                  {repo}
-                                </li>
-                              ))
-                            ) : (
-                              <p className="text-sm text-gray-500">No repos found</p>
-                            )}
-                          </ul>
-                        </div>
-
-                        <div className="pt-3 border-t">
-                          <p className="text-sm font-medium mb-2">Push to New Repo</p>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="text"
-                              placeholder="New repo name"
-                              value={newRepoName}
-                              onChange={(e) => setNewRepoName(e.target.value)}
-                              className="flex-1"
-                            />
-                            <Button
-                              onClick={handlePushToGithub}
-                              disabled={isPushing || !newRepoName}
-                              size="sm"
-                            >
-                              {isPushing ? "Pushing..." : "Push"}
-                            </Button>
-                          </div>
-                          {githubError && <p className="text-xs text-red-500 mt-2">{githubError}</p>}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -606,11 +449,11 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
               {openDropdown === "profile" && (
                 <div
                   ref={dropdownRef}
-                  className="absolute top-full right-0 mt-[-10px] w-60 bg-[#e4e4e4] border rounded-lg z-50 transition-all duration-200"
+                  className="absolute top-full right-0 mt-[-10px] w-60 BackgroundStyleButton rounded-md z-50 transition-all duration-200"
                 >
-                  <div className="flex flex-col p-1.5">
+                  <div className="flex flex-col p-1">
                     {creditsData && (
-                      <div className="hover:bg-gray-50 rounded-sm p-1 cursor-pointer flex items-center gap-3 w-full text-sm px-2 py-2.5 text-gray-200">
+                      <div className="hover:bg-gray-50 rounded-sm p-1 flex items-center gap-3 w-full text-sm px-2 py-1.5 text-black/80">
                         Next credits in{" "}
                         <span className="font-mono">
                           {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}
@@ -619,13 +462,13 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                     )}
 
                     <Link href="/projects" className="hover:bg-gray-50 rounded-sm p-1 cursor-pointer">
-                      <button className="flex items-center gap-3 cursor-pointer w-full text-sm px-2 py-2.5 hover:bg-[#2e2e2e] text-gray-200 rounded">
+                      <button className="flex items-center gap-3 cursor-pointer w-full text-sm px-2 py-0.5 text-black/80 rounded">
                         Projects
                       </button>
                     </Link>
 
                     <Link href="/legal/privacy" className="hover:bg-gray-50 rounded-sm p-1 cursor-pointer">
-                      <button className="flex items-center gap-3 w-full cursor-pointer text-sm px-2 py-2.5 hover:bg-[#2e2e2e] text-gray-200 rounded">
+                      <button className="flex items-center gap-3 cursor-pointer w-full text-sm px-2 py-0.5 text-black/80 rounded">
                         Privacy Policy
                       </button>
                     </Link>
@@ -635,7 +478,7 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                         clerk.openUserProfile()
                         setOpenDropdown(null)
                       }}
-                      className="flex items-center gap-3 w-full text-sm px-2 p-1 py-2.5 hover:bg-gray-50 rounded-sm text-gray-200 cursor-pointer"
+                      className="flex items-center gap-3 w-full text-sm px-2 p-1 py-1.5 hover:bg-gray-50 rounded-sm text-black/80 cursor-pointer"
                     >
                       Manage Account
                     </button>
@@ -645,7 +488,7 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                         clerk.signOut()
                         setOpenDropdown(null)
                       }}
-                      className="flex items-center gap-3 w-full text-sm px-2 py-2.5 p-1 text-gray-200 hover:bg-gray-50 rounded-sm cursor-pointer"
+                      className="flex items-center gap-3 w-full text-sm px-2 py-1.5 p-1 text-black/80 hover:bg-gray-50 rounded-sm cursor-pointer"
                     >
                       Logout
                     </button>

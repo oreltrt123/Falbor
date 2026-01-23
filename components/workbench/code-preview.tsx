@@ -3,7 +3,9 @@
 // Added constants for src/main.tsx and src/index.css, and logic to include them in effectiveFiles if missing for React projects.
 "use client"
 import { useEffect, useState, useRef, useMemo, useCallback } from "react"
-import { TerminalIcon, Plus, Loader2, X, Loader } from "lucide-react"
+import React from "react"
+
+import { TerminalIcon, Plus, Loader2, X, Loader, RefreshCw, ArrowLeft, ArrowRight, Smartphone, Tablet, Monitor, ChevronDown } from "lucide-react"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 import { MainHeader } from "./main-header"
 import { CodeTab } from "./code-tab"
@@ -14,6 +16,7 @@ import {
   SandpackFileExplorer,
   SandpackCodeEditor,
   SandpackPreview,
+  useSandpack,
 } from "@codesandbox/sandpack-react"
 import { DatabasePanel } from "./database-panel"
 import FeatureShowcaseDark from "../auth/FeatureShowcaseDark"
@@ -68,6 +71,227 @@ const AUTO_GENERATED_FILES = [
   "package-lock.json",
   "yarn.lock",
 ]
+// Device size presets for responsive preview
+const DEVICE_SIZES = [
+  { name: "Phone", width: 375, height: 667, icon: Smartphone },
+  { name: "Tablet", width: 768, height: 1024, icon: Tablet },
+  { name: "Desktop", width: "100%", height: "100%", icon: Monitor },
+] as const
+
+type DeviceSize = typeof DEVICE_SIZES[number]
+
+// Custom Preview Toolbar Component
+function CustomPreviewToolbar({
+  currentUrl,
+  setCurrentUrl,
+  onRefresh,
+  onBack,
+  onForward,
+  canGoBack,
+  canGoForward,
+  selectedDevice,
+  setSelectedDevice,
+  availableRoutes,
+}: {
+  currentUrl: string
+  setCurrentUrl: (url: string) => void
+  onRefresh: () => void
+  onBack: () => void
+  onForward: () => void
+  canGoBack: boolean
+  canGoForward: boolean
+  selectedDevice: DeviceSize
+  setSelectedDevice: (device: DeviceSize) => void
+  availableRoutes: string[]
+}) {
+  const [showDeviceMenu, setShowDeviceMenu] = useState(false)
+  const [inputValue, setInputValue] = useState(currentUrl)
+  const deviceMenuRef = useRef<HTMLDivElement>(null)
+
+  // Sync input value with currentUrl
+  useEffect(() => {
+    setInputValue(currentUrl)
+  }, [currentUrl])
+
+  // Close device menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (deviceMenuRef.current && !deviceMenuRef.current.contains(event.target as Node)) {
+        setShowDeviceMenu(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  const handleUrlSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    let url = inputValue.trim()
+    if (!url.startsWith("/")) {
+      url = "/" + url
+    }
+    setCurrentUrl(url)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleUrlSubmit(e)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 bg-[#f5f5f5] border-b border-gray-200">
+      {/* Navigation Buttons */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={onBack}
+          disabled={!canGoBack}
+          className={`p-1.5 rounded-md transition-colors ${canGoBack
+              ? "hover:bg-gray-200 text-gray-700"
+              : "text-gray-300 cursor-not-allowed"
+            }`}
+          title="Go back"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <button
+          onClick={onForward}
+          disabled={!canGoForward}
+          className={`p-1.5 rounded-md transition-colors ${canGoForward
+              ? "hover:bg-gray-200 text-gray-700"
+              : "text-gray-300 cursor-not-allowed"
+            }`}
+          title="Go forward"
+        >
+          <ArrowRight className="w-4 h-4" />
+        </button>
+        <button
+          onClick={onRefresh}
+          className="p-1.5 rounded-md hover:bg-gray-200 text-gray-700 transition-colors"
+          title="Refresh"
+        >
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* URL Bar */}
+      <form onSubmit={handleUrlSubmit} className="flex-1">
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="/"
+          className="w-full px-3 py-0.5 text-sm bg-white border border-gray-300 rounded-full focus:outline-none focus:ring-0 focus:border-transparent"
+        />
+      </form>
+
+      {/* Device Selector */}
+      <div className="relative" ref={deviceMenuRef}>
+        <button
+          onClick={() => setShowDeviceMenu(!showDeviceMenu)}
+          className="flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-gray-200 text-gray-700 transition-colors"
+          title="Device size"
+        >
+          <selectedDevice.icon className="w-4 h-4" />
+          <span className="text-sm hidden sm:inline">{selectedDevice.name}</span>
+          <ChevronDown className="w-3 h-3" />
+        </button>
+
+        {showDeviceMenu && (
+          <div className="absolute right-0 top-0 mt-1 p-1 bg-white border rounded-lg z-50 min-w-[160px]">
+            {DEVICE_SIZES.map((device) => (
+              <button
+                key={device.name}
+                onClick={() => {
+                  setSelectedDevice(device)
+                  setShowDeviceMenu(false)
+                }}
+                className={`w-full flex items-center gap-2 px-3 py-1 mt-1 mb-1 text-sm rounded-md hover:bg-gray-100 transition-colors ${selectedDevice.name === device.name ? "bg-gray-50 text-blue-600" : "text-gray-700"
+                  } first:rounded-t-lg last:rounded-b-lg`}
+              >
+                <device.icon className="w-4 h-4" />
+                <span>{device.name}</span>
+                {typeof device.width === "number" && (
+                  <span className="text-xs text-gray-400 ml-auto">
+                    {device.width}x{device.height}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Sandpack Preview Wrapper with custom controls
+function SandpackPreviewWrapper({
+  previewContainerRef,
+  selectedDevice,
+  currentUrl,
+  onUrlChange,
+}: {
+  previewContainerRef: React.RefObject<HTMLDivElement | null>
+  selectedDevice: DeviceSize
+  currentUrl: string
+  onUrlChange: (url: string) => void
+}) {
+  const { sandpack } = useSandpack()
+  const iframeRef = useRef<HTMLIFrameElement | null>(null)
+
+  // Listen for navigation changes from the iframe
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "urlchange") {
+        onUrlChange(event.data.url || "/")
+      }
+    }
+    window.addEventListener("message", handleMessage)
+    return () => window.removeEventListener("message", handleMessage)
+  }, [onUrlChange])
+
+  // Navigate when URL changes
+  useEffect(() => {
+    if (!previewContainerRef.current) return;
+
+    const iframe = previewContainerRef.current.querySelector(".sp-preview-iframe") as HTMLIFrameElement | null;
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage({ type: "navigate", url: currentUrl }, "*")
+    }
+  }, [currentUrl, previewContainerRef])
+
+  const isFullWidth = selectedDevice.width === "100%"
+  const containerStyle: React.CSSProperties = isFullWidth
+    ? { width: "100%", height: "100%" }
+    : {
+      width: selectedDevice.width as number,
+      height: selectedDevice.height as number,
+      maxWidth: "100%",
+      maxHeight: "100%",
+    }
+
+  return (
+    <div
+      ref={previewContainerRef}
+      className="relative h-full flex items-center justify-center bg-[#e5e5e5] overflow-auto"
+    >
+      <div
+        style={containerStyle}
+        className={`bg-white ${!isFullWidth ? "shadow-lg rounded-lg overflow-hidden border border-gray-300" : ""}`}
+      >
+        <SandpackPreview
+          showNavigator={false}
+          showRefreshButton={false}
+          showOpenInCodeSandbox={false}
+          style={{ height: "100%", width: "100%" }}
+        />
+      </div>
+    </div>
+  )
+}
+
 function shouldHideFile(filePath: string, isGitHubImport: boolean): boolean {
   if (!isGitHubImport) return false // Show all files for AI-generated projects
   // Normalize path (remove leading slash/backslash)
@@ -116,9 +340,67 @@ export function CodePreview({
   const [isInspectorMode, setIsInspectorMode] = useState(false);
   const previewContainerRef = useRef<HTMLDivElement>(null);
 
+  // Preview toolbar state
+  const [previewUrl, setPreviewUrl] = useState("/")
+  const [urlHistory, setUrlHistory] = useState<string[]>(["/"])
+  const [historyIndex, setHistoryIndex] = useState(0)
+  const [selectedDevice, setSelectedDevice] = useState<DeviceSize>(DEVICE_SIZES[2]) // Default to Desktop
+  const [sandpackKey, setSandpackKey] = useState(0) // For forcing refresh
+
   const toggleInspectorMode = () => {
     setIsInspectorMode((prev) => !prev);
   };
+
+  // Preview navigation handlers
+  const handleNavigate = useCallback((url: string) => {
+    setPreviewUrl(url)
+    // Add to history if it's a new navigation (not back/forward)
+    setUrlHistory(prev => {
+      const newHistory = [...prev.slice(0, historyIndex + 1), url]
+      return newHistory
+    })
+    setHistoryIndex(prev => prev + 1)
+  }, [historyIndex])
+
+  const handleBack = useCallback(() => {
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1
+      setHistoryIndex(newIndex)
+      setPreviewUrl(urlHistory[newIndex])
+    }
+  }, [historyIndex, urlHistory])
+
+  const handleForward = useCallback(() => {
+    if (historyIndex < urlHistory.length - 1) {
+      const newIndex = historyIndex + 1
+      setHistoryIndex(newIndex)
+      setPreviewUrl(urlHistory[newIndex])
+    }
+  }, [historyIndex, urlHistory])
+
+  const handleRefresh = useCallback(() => {
+    setSandpackKey(prev => prev + 1)
+  }, [])
+
+  const canGoBack = historyIndex > 0
+  const canGoForward = historyIndex < urlHistory.length - 1
+
+  // Extract available routes from files
+  const availableRoutes = useMemo(() => {
+    const routes: string[] = ["/"]
+    const effectiveFiles = filesOverride || files;
+    effectiveFiles.forEach(file => {
+      // Look for page files in common patterns
+      const pageMatch = file.path.match(/(?:pages|app)\/(.+?)(?:\/page|\/index)?\.(tsx?|jsx?)$/)
+      if (pageMatch) {
+        const route = "/" + pageMatch[1].replace(/\[(.+?)\]/g, ":$1").replace(/\/index$/, "")
+        if (!routes.includes(route)) {
+          routes.push(route)
+        }
+      }
+    })
+    return routes
+  }, [filesOverride, files])
 
   useEffect(() => {
     if (projectType !== "react") return;
@@ -393,7 +675,7 @@ sys.stdout = StdoutRedirect(lambda text: js.term_write(text))
         }
       }
       term.onData(onData)
-      ;(term as any).disposeOnData = onData
+        ; (term as any).disposeOnData = onData
     },
     [onError],
   )
@@ -600,11 +882,10 @@ sys.stdout = StdoutRedirect(lambda text: js.term_write(text))
                             <button
                               key={tab.id}
                               onClick={() => setActiveTerminalTab(tab.id)}
-                              className={`px-2 py-1 text-xs rounded whitespace-nowrap overflow-hidden text-ellipsis ${
-                                activeTerminalTab === tab.id
+                              className={`px-2 py-1 text-xs rounded whitespace-nowrap overflow-hidden text-ellipsis ${activeTerminalTab === tab.id
                                   ? "bg-[#dad8d8] hover:bg-[#e7e7e7] text-black"
                                   : "bg-[#e4e4e4] hover:bg-[#e7e7e7] text-black"
-                              }`}
+                                }`}
                               title={tab.title}
                             >
                               {tab.title}
@@ -676,6 +957,7 @@ sys.stdout = StdoutRedirect(lambda text: js.term_write(text))
             </>
           ) : (
             <SandpackProvider
+              key={sandpackKey}
               files={sandpackFiles}
               template={template}
               theme={"light"}
@@ -687,17 +969,28 @@ sys.stdout = StdoutRedirect(lambda text: js.term_write(text))
               <div className="h-[100vh] flex flex-col">
                 <TabsContent
                   value="preview"
-                  className="flex-1 m-0 p-0 border-t border-gray-200 overflow-hidden rounded-bl-lg"
+                  className="flex-1 m-0 p-0 border-t border-gray-200 overflow-hidden rounded-bl-lg flex flex-col"
                 >
-                  <div ref={previewContainerRef} className="relative h-full">
-                    <SandpackPreview showNavigator={true} style={{ height: "100%" }} />
-                    {/* <button
-                      onClick={toggleInspectorMode}
-                      className={`absolute top-2 right-2 z-10 ${isInspectorMode ? 'bg-bolt-elements-background-depth-3 !text-bolt-elements-item-contentAccent' : ''}`}
-                    >
-                      {isInspectorMode ? 'Disable Element Inspector' : 'Enable Element Inspector'}
-                    </button> */}
-                  </div>
+                  {/* Custom Preview Toolbar */}
+                  <CustomPreviewToolbar
+                    currentUrl={previewUrl}
+                    setCurrentUrl={handleNavigate}
+                    onRefresh={handleRefresh}
+                    onBack={handleBack}
+                    onForward={handleForward}
+                    canGoBack={canGoBack}
+                    canGoForward={canGoForward}
+                    selectedDevice={selectedDevice}
+                    setSelectedDevice={setSelectedDevice}
+                    availableRoutes={availableRoutes}
+                  />
+                  {/* Preview Container */}
+                  <SandpackPreviewWrapper
+                    previewContainerRef={previewContainerRef}
+                    selectedDevice={selectedDevice}
+                    currentUrl={previewUrl}
+                    onUrlChange={handleNavigate}
+                  />
                 </TabsContent>
                 <TabsContent
                   value="code"

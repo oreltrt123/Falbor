@@ -367,39 +367,39 @@ export function EditorPane({
       )}
 
       {/* 🔔 ShadCN Alert (Bottom Right, 3px from bottom) */}
-{alert && (
-  <div className="fixed bottom-2 right-0 w-[10%] z-50 px-4 pb-[3px]">
-    <Alert className="w-full flex items-start justify-between">
-      <div className="flex flex-col gap-1">
-        <AlertTitle className="font-semibold leading-tight">
-          {alert.title}
-        </AlertTitle>
-        <AlertDescription className="leading-snug break-words">
-          {alert.message}
-        </AlertDescription>
-      </div>
-
-      <button
-        onClick={() => setAlert(null)}
-        className="ml-3 mt-1 hover:opacity-70 shrink-0"
-      >
-        <X className="w-4 h-4" />
-      </button>
-    </Alert>
-  </div>
-)}
-          {isSidebarOpen && (
-            <div ref={sidebarRef} className="bg-white shadow-xl absolute ml-3 mt-5 rounded-lg border z-10 w-64 overflow-y-scroll max-h-56">
-              <FileSidebar
-                files={files}
-                onFileSelect={handleFileSelect}
-                selectedPath={selectedFile?.path ?? null}
-                projectId={projectId}
-                onFilesChange={fetchFiles}
-                currentRoot={currentRoot}
-              />
+      {alert && (
+        <div className="fixed bottom-2 right-0 w-[10%] z-50 px-4 pb-[3px]">
+          <Alert className="w-full flex items-start justify-between">
+            <div className="flex flex-col gap-1">
+              <AlertTitle className="font-semibold leading-tight">
+                {alert.title}
+              </AlertTitle>
+              <AlertDescription className="leading-snug break-words">
+                {alert.message}
+              </AlertDescription>
             </div>
-          )}
+
+            <button
+              onClick={() => setAlert(null)}
+              className="ml-3 mt-1 hover:opacity-70 shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </Alert>
+        </div>
+      )}
+      {isSidebarOpen && (
+        <div ref={sidebarRef} className="bg-white shadow-xl absolute ml-3 mt-5 rounded-lg border z-10 w-64 overflow-y-scroll max-h-56">
+          <FileSidebar
+            files={files}
+            onFileSelect={handleFileSelect}
+            selectedPath={selectedFile?.path ?? null}
+            projectId={projectId}
+            onFilesChange={fetchFiles}
+            currentRoot={currentRoot}
+          />
+        </div>
+      )}
 
       <SupabaseConnectModal
         open={isModalOpen}

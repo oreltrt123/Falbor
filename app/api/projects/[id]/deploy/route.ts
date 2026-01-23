@@ -86,12 +86,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Use existing subdomain if available, otherwise create new one
     const subdomain = existingDeployment?.subdomain || projectId.toLowerCase().replace(/[^a-z0-9-]/g, "-")
 
-    const baseUrl =
-      process.env.NODE_ENV === "development"
-        ? "http://localhost:3000"
-        : `https://${process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz"}`
+    const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz"
 
-    const deploymentUrl = `${baseUrl}/deploy/${subdomain}`
+    const deploymentUrl =
+      process.env.NODE_ENV === "development"
+        ? `http://localhost:3000/deploy/${subdomain}`
+        : `https://${subdomain}.${baseDomain}`
 
     if (existingDeployment) {
       await db

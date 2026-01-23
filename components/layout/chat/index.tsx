@@ -146,16 +146,17 @@ const designPresets: Record<string, DesignConfig> = {
 }
 const MODEL_OPTIONS: ModelOption[] = [
   { id: "claude-opus-4.5", label: "Claude Opus 4.5", isPremium: true, iconUrl: "/icons/claude.png" },
-  { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5", isPremium: true, iconUrl: "/icons/claude.png" },
+  { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5", isPremium: false, iconUrl: "/icons/claude.png" },
   { id: "claude-opus-4", label: "Claude Opus 4", isPremium: true, iconUrl: "/icons/claude.png" },
-  { id: "claude-3.5-haiku", label: "Claude 3.5 Haiku", isPremium: false, iconUrl: "/icons/claude.png" },
-  { id: "claude-3.5-sonnet", label: "Claude 3.5 Sonnet", isPremium: false, iconUrl: "/icons/claude.png" },
+  // { id: "claude-3.5-haiku", label: "Claude 3.5 Haiku", isPremium: false, iconUrl: "/icons/claude.png" },
+  // { id: "claude-3.5-sonnet", label: "Claude 3.5 Sonnet", isPremium: false, iconUrl: "/icons/claude.png" },
   { id: "gemini", label: "Gemini 3 Flash", isPremium: false, iconUrl: "/icons/gemini.png" },
   { id: "gpt-5.2", label: "GPT-5.2", isPremium: false, iconUrl: "/icons/openai.png" },
-  { id: "gpt-5.1-codex", label: "GPT-5.1 Codex Max", isPremium: false, iconUrl: "/icons/openai.png" },
-  { id: "grok-4.1", label: "Grok 4.1 Fast", isPremium: true, iconUrl: "https://x.ai/favicon.ico" },
-  { id: "grok-3-mini", label: "Grok 3 Mini", isPremium: false, iconUrl: "https://x.ai/favicon.ico" },
+  // { id: "gpt-5.1-codex", label: "GPT-5.1 Codex Max", isPremium: false, iconUrl: "/icons/openai.png" },
+  // { id: "grok-4.1", label: "Grok 4.1 Fast", isPremium: true, iconUrl: "https://x.ai/favicon.ico" },
+  // { id: "grok-3-mini", label: "Grok 3 Mini", isPremium: false, iconUrl: "https://x.ai/favicon.ico" },
 ]
+
 const formatFileSize = (bytes: number) => {
   if (bytes === 0) return "0 Bytes"
   const k = 1024
@@ -220,7 +221,7 @@ const FilePreviewButton: React.FC<FilePreviewButtonProps> = ({ file, onClick, on
       </button>
       {file.uploadStatus === "uploading" && (
         <div className="absolute inset-0 bg-white/80 flex items-center justify-center rounded-lg">
-          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+          <Loader className="w-4 h-4 text-gray-500 animate-spin" />
         </div>
       )}
     </div>
@@ -741,7 +742,7 @@ const ChatInputImpl = forwardRef<ChatInputRef, ChatInputProps>(function ChatInpu
               if (data.done) {
                 setMessage(data.improvedPrompt)
               }
-            } catch {}
+            } catch { }
           }
         }
       }
@@ -1342,38 +1343,6 @@ Please analyze this error and fix it in the code. Make sure to:
                 />
               ))}
             </div>
-            <hr
-              className="mt-1"
-              style={{
-                backgroundColor: "#ffffff",
-                borderRadius: "6px",
-                border: "1px solid #dbd9d9b2",
-                transition: "background-image 200ms ease",
-                backgroundImage: `
-      linear-gradient(#ffffff, #ffffff),
-      /* TOP border (colored section only) */
-      linear-gradient(
-        to right,
-        ${isActive ? "#f3581f" : "rgba(193,95,60,0.35)"} 0%,
-        rgba(193, 60, 60, ${isActive ? "1" : "0.45"}) 18%,
-        rgba(193, 95, 60, ${isActive ? "0.85" : "0.25"}) 35%,
-        rgba(219, 219, 217, 0.7) 50%,
-        #dbd9d9b2 60%
-      ),
-      /* LEFT border (colored section only) */
-      linear-gradient(
-        to bottom,
-        ${isActive ? "#c15f3c" : "rgba(193,95,60,0.35)"} 0%,
-        rgba(193, 95, 60, ${isActive ? "1" : "0.45"}) 22%,
-        rgba(193, 95, 60, ${isActive ? "0.85" : "0.25"}) 40%,
-        rgba(219, 219, 217, 0.7) 55%,
-        #dbd9d9b2 65%
-      )
-    `,
-                backgroundOrigin: "padding-box, border-box, border-box",
-                backgroundClip: "padding-box, border-box, border-box",
-              }}
-            />
           </div>
         )}
         <textarea
@@ -1426,7 +1395,7 @@ Please analyze this error and fix it in the code. Make sure to:
                   <DropdownMenuTrigger asChild>
                     <Button
                       type="button"
-                      className="h-7 w-7 p-1.5 cursor-pointer text-sm rounded-md hover:bg-[#e7e7e7] text-black ml-1"
+                      className="h-7 w-7 p-1.5 cursor-pointer text-sm rounded-md BackgroundStyle text-black ml-1"
                       title="More options"
                       disabled={isLoading}
                       variant="ghost"
@@ -1435,7 +1404,11 @@ Please analyze this error and fix it in the code. Make sure to:
                       <MoreHorizontal className="w-4 h-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent side="bottom" align="start" className="w-[105%] mt-[-10px]">
+                  <DropdownMenuContent
+                    align="start"
+                    side="top"
+                    className="w-52"
+                  >
                     {menuMode === "main" ? (
                       <>
                         <DropdownMenuItem
@@ -1522,30 +1495,72 @@ Please analyze this error and fix it in the code. Make sure to:
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
-                      className="flex items-center cursor-pointer gap-2 px-3 py-1.5 h-7 rounded-md text-sm font-medium hover:bg-[#e7e7e7] text-black"
+                      className="flex items-center cursor-pointer gap-2 px-3 py-1.5 h-7 rounded-md text-sm font-medium BackgroundStyle text-black"
                       disabled={isLoading}
                     >
                       <img src={currentModel.iconUrl || "/placeholder.svg"} alt="" className="w-4 h-4" />
                       <span>{currentModel.label}</span>
-                      {currentModel.isPremium && !hasSubscription && <Crown className="w-4 h-4 text-amber-500 ml-1" />}
+                      {currentModel.isPremium && !hasSubscription && (
+                        <Crown className="w-4 h-4 text-amber-500 ml-1" />
+                      )}
                       <ChevronDown className="w-4 h-4 ml-1" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-64">
-                    {MODEL_OPTIONS.map((model) => (
-                      <DropdownMenuItem
-                        key={model.id}
-                        onSelect={() => handleModelSelect(model.id)}
-                        className="flex items-center gap-3 cursor-pointer"
-                      >
-                        <img src={model.iconUrl || "/placeholder.svg"} alt={model.label} className="w-4 h-4 rounded" />
-                        <span className="flex-1">{model.label}</span>
-                        {model.isPremium && !hasSubscription && <Lock className="w-3 h-3 text-gray-600" />}
-                        {selectedModel === model.id && <span className="text-xs text-muted-foreground">✓</span>}
-                      </DropdownMenuItem>
-                    ))}
+
+                  <DropdownMenuContent
+                    align="start"
+                    side="top"
+                    className="w-64 p-0"
+                  >
+                    {/* Claude Agent Title */}
+                    <div className="px-2.5 py-1 mt-1 text-xs font-semibold text-muted-foreground">
+                      Claude Agent
+                    </div>
+
+                    {/* Claude Models */}
+                    <div className="p-0.5">
+                      {MODEL_OPTIONS.slice(0, 3).map((model) => (
+                        <DropdownMenuItem
+                          key={model.id}
+                          onSelect={() => handleModelSelect(model.id)}
+                          className="flex items-center gap-3 cursor-pointer px-3"
+                        >
+                          <img src={model.iconUrl} alt={model.label} className="w-4 h-4 rounded" />
+                          <span className="flex-1">{model.label}</span>
+
+                          {model.isPremium && !hasSubscription && (
+                            <Lock className="w-3 h-3 text-gray-600" />
+                          )}
+
+                          {selectedModel === model.id && (
+                            <span className="text-xs bg-gray-200 text-gray-900 px-2 py-0.5 rounded-2xl">active</span>
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </div>
+                    {/* Full-width divider */}
+                    <div className="h-px bg-gray-100 w-full m-0 p-0" />
+
+                    {/* Other Models */}
+                    <div className="p-0.5">
+                      {MODEL_OPTIONS.slice(3).map((model) => (
+                        <DropdownMenuItem
+                          key={model.id}
+                          onSelect={() => handleModelSelect(model.id)}
+                          className="flex items-center gap-3 cursor-pointer px-3"
+                        >
+                          <img src={model.iconUrl} alt={model.label} className="w-4 h-4 rounded" />
+                          <span className="flex-1">{model.label}</span>
+
+                          {selectedModel === model.id && (
+                            <span className="text-xs bg-gray-200 text-gray-900 px-2 py-0.5 rounded-2xl">active</span>
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </div>
                   </DropdownMenuContent>
                 </DropdownMenu>
+
                 {connected && (
                   <Button
                     type="button"

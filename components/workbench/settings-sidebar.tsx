@@ -5,9 +5,9 @@ import { Brain, Cpu, Settings, Shield, CheckSquare, Upload } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
 interface SettingsSidebarProps {
-  activeSection: "project-settings" | "ai-models" | "custom-knowledge" | "security" | "tasks" | "publish-template"
+  activeSection: "project-settings" | "ai-models" | "custom-knowledge" | "security" | "automations" | "publish-template"
   onSectionChange: (
-    section: "project-settings" | "ai-models" | "custom-knowledge" | "security" | "tasks" | "publish-template",
+    section: "project-settings" | "ai-models" | "custom-knowledge" | "security" | "automations" | "publish-template",
   ) => void
 }
 
@@ -25,8 +25,8 @@ const menuItems = [
     group: "Project Settings",
   },
   {
-    id: "tasks" as const,
-    label: "Tasks",
+    id: "automations" as const,
+    label: "Automations",
     icon: CheckSquare,
     group: "Project Settings",
   },
@@ -74,7 +74,7 @@ export function SettingsSidebar({ activeSection, onSectionChange }: SettingsSide
                   >
                     <Icon className="w-4 h-4" />
                     {item.label}
-                    {item.id === "tasks" && (
+                    {item.id === "automations" && (
                       <Badge className="ml-2 absolute right-1" variant="secondary">
                         Beta
                       </Badge>

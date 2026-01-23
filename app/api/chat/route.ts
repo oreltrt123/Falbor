@@ -337,8 +337,10 @@ Then generate production-ready code files.`
 
           let continuationCount = 0
           do {
-            const stream = await geminiModel.generateContentStream({
-              contents,
+            const stream = await retryWithBackoff(async () => {
+              return await geminiModel.generateContentStream({
+                contents,
+              })
             })
 
             let finishReason = null
@@ -866,4 +868,38 @@ async function getCustomKnowledge(userId: string): Promise<string> {
     console.error("[API/Chat] Failed to fetch custom knowledge:", error)
   }
   return ""
+}
+
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 2000,
+): Promise<T> {
+  let lastError: any
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation()
+    } catch (error: any) {
+      lastError = error
+
+      // Check for 503 Service Unavailable or 429 Too Many Requests
+      const isRetryable =
+        error.status === 503 ||
+        error.status === 429 ||
+        (error.message && (error.message.includes("503") || error.message.includes("overloaded")))
+
+      if (!isRetryable) {
+        throw error
+      }
+
+      const delay = baseDelay * Math.pow(2, i)
+      console.log(
+        `[Gemini] Request failed with ${error.status || "error"}. Retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`,
+      )
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
+  }
+
+  throw lastError
 }

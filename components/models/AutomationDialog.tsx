@@ -106,17 +106,17 @@ export function AutomationDialog({
       <DialogContent className="max-w-sm overflow-y-auto bg-[#ffffff] border-0 p-0 sm:max-w-md">
         <DialogHeader className="p-6 pb-6 mb-[-30px]">
           <DialogTitle className="text-black text-xl flex items-center gap-2">
-             AI Automation Settings 
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge className="bg-[#e4e4e4b4] text-black">Beta</Badge>
-                    </TooltipTrigger>
-        
-                    <TooltipContent className="w-50 p-3">
-                        <p className="text-[12px]">This Beta version may contain problems. We are here to solve them. If there is a problem, you can contact the 
-                         <span className="ml-1"><Link className="text-[#0099FF]" href={'/contact'}>Contact</Link> page.</span></p>
-                    </TooltipContent>
-                </Tooltip>
+            AI Automation Settings
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge className="bg-[#e4e4e4b4] text-black">Beta</Badge>
+              </TooltipTrigger>
+
+              <TooltipContent className="w-50 p-3">
+                <p className="text-[12px]">This Beta version may contain problems. We are here to solve them. If there is a problem, you can contact the
+                  <span className="ml-1"><Link className="text-[#0099FF]" href={'/contact'}>Contact</Link> page.</span></p>
+              </TooltipContent>
+            </Tooltip>
           </DialogTitle>
           <p className="text-black/60 text-xs">Times displayed and set in Israel timezone (UTC+2/UTC+3)</p>
         </DialogHeader>
@@ -130,15 +130,15 @@ export function AutomationDialog({
           <div>
             <div className="flex items-center gap-1.5 mb-1">
               <label className="text-black block mb-1">Model</label>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                      <AlertCircle className="w-4 h-4 text-black mb-1" /> 
-                    </TooltipTrigger>
-        
-                    <TooltipContent className="w-50 p-3">
-                        <p className="text-[12px]">The model you select here will be used by the AI to generate the project.</p>
-                    </TooltipContent>
-                </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <AlertCircle className="w-4 h-4 text-black mb-1" />
+                </TooltipTrigger>
+
+                <TooltipContent className="w-50 p-3">
+                  <p className="text-[12px]">The model you select here will be used by the AI to generate the project.</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
             <div className="relative" ref={modelDropdownRef}>
               <Button
@@ -173,9 +173,8 @@ export function AutomationDialog({
                         type="button"
                         onClick={() => handleModelChange(modelKey)}
                         disabled={isComingSoon}
-                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4] ${
-                          isSelected ? "font-bold" : ""
-                        } ${isComingSoon ? "opacity-50 cursor-not-allowed" : ""}`}
+                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-sm hover:bg-[#e4e4e4] ${isSelected ? "font-bold" : ""
+                          } ${isComingSoon ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
                         <img src={icon || "/placeholder.svg"} alt="" className={`w-3.5 h-3.5 ${color}`} />
                         <span className="text-black/75">{label}</span>
@@ -188,7 +187,7 @@ export function AutomationDialog({
               )}
             </div>
           </div>
-          <div>
+          {/* <div>
             <div className="flex items-center gap-1.5 mb-1">
             <label className="text-black block mb-2">Daily Time</label>
                 <Tooltip>
@@ -303,20 +302,20 @@ export function AutomationDialog({
               </div>
             </div>
             <p className="text-black/50 text-xs">Timezone: {currentParsed.timezone}</p>
-          </div>
+          </div> */}
           <div>
             <div className="flex items-center gap-1.5 mb-1">
-            <label className="text-black block mb-1">Max Messages</label>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                      <AlertCircle className="w-4 h-4 text-black mb-1" /> 
-                    </TooltipTrigger>
-        
-                    <TooltipContent className="w-50 p-3">
-                        <p className="text-[12px]">The number you choose here will be the amount of messages the AI ​​will create in the project.</p>
-                    </TooltipContent>
-                </Tooltip>
-             </div>
+              <label className="text-black block mb-1">Max Messages</label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <AlertCircle className="w-4 h-4 text-black mb-1" />
+                </TooltipTrigger>
+
+                <TooltipContent className="w-50 p-3">
+                  <p className="text-[12px]">The number you choose here will be the amount of messages the AI will create in the project.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <input
               type="number"
               min={2}
@@ -344,22 +343,22 @@ export function AutomationDialog({
           </div>
         </form>
         <DialogFooter className="px-6 pb-6 flex gap-2">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              onClick={onTestNow}
-              disabled={loading || !automationSettings.isActive}
-              className="flex-1 bg-[#0099FF] hover:bg-[#0099FF]"
-            >
-              Create a project
-            </Button>
-          </TooltipTrigger>
-        
-          <TooltipContent className="w-50 p-3">
-            <p className="text-[12px]">When you create the project, AI will automatically generate it from scratch, including messages, ideas, and editable code. You can view and manage the project on the Projects page.</p>
-          </TooltipContent>
-        </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                onClick={onTestNow}
+                disabled={loading || !automationSettings.isActive}
+                className="flex-1 bg-[#0099FF] hover:bg-[#0099FF]"
+              >
+                Create a project
+              </Button>
+            </TooltipTrigger>
+
+            <TooltipContent className="w-50 p-3">
+              <p className="text-[12px]">When you create the project, AI will automatically generate it from scratch, including messages, ideas, and editable code. You can view and manage the project on the Projects page.</p>
+            </TooltipContent>
+          </Tooltip>
 
           <Button
             type="button"

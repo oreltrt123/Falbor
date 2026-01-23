@@ -217,13 +217,13 @@ export function TaskCreateForm({ projectId, projectInfo, onBack, onTaskCreated }
             Create Task
           </Button>
         </div>
-          <p className="text-[11px] text-muted-foreground mt-[-12px]">
-            {projectInfo && (
-              <>
-                AI generates ideas based on your website files <strong>{projectInfo.title}</strong>
-              </>
-            )}
-          </p>
+        <p className="text-[11px] text-muted-foreground mt-[-12px]">
+          {projectInfo && (
+            <>
+              AI generates ideas based on your website files <strong>{projectInfo.title}</strong>
+            </>
+          )}
+        </p>
       </div>
     </div>
   )
