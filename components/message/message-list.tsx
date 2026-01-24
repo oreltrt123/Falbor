@@ -114,9 +114,9 @@ function parseAIResponse(content: string) {
         const checks: Array<{ file: string; error: string; fix: string; status: string }> = []
         const checkLines = checksContent
           .split("\n")
-          .filter((line) => line.includes("File:") || line.includes("- Error:"))
+          .filter((line: string) => line.includes("File:") || line.includes("- Error:"))
         let currentFile = ""
-        checkLines.forEach((line) => {
+        checkLines.forEach((line: string) => {
           if (line.includes("File:")) {
             currentFile = line.match(/File:\s*(.+?)(?:\s*-|$)/)?.[1]?.trim() || ""
           } else if (line.includes("- Error:")) {
@@ -137,8 +137,8 @@ function parseAIResponse(content: string) {
       } else if (type === "files") {
         const filesContent = match[1].trim()
         const filesList: { name: string; path: string; status: "success" | "error" | "loading" }[] = []
-        const fileLines = filesContent.split("\n").filter((line) => line.trim())
-        fileLines.forEach((line) => {
+        const fileLines = filesContent.split("\n").filter((line: string) => line.trim() !== "")
+        fileLines.forEach((line: string) => {
           const successMatch = line.match(/(.+?)\s*[✓✔]/i)
           const errorMatch = line.match(/(.+?)\s*[✗✘X]/i)
           const loadingMatch = line.match(/(.+?)\s*[⏳⌛…]/i)
@@ -198,15 +198,15 @@ function parseAIResponse(content: string) {
       const openRegex = new RegExp(`<${type.charAt(0).toUpperCase() + type.slice(1)}>([\\s\\S]*)`, "i");
       const match = finalText.match(openRegex);
       if (match && match.index === 0) {
-        let parsedContent = match[1].trim();
+        let parsedContent: any = match[1].trim();
         // Special parsing for fileChecks, files, etc., if needed (similar to above)
         if (type === "fileChecks") {
           // Reuse the parsing logic from above, adapted for incomplete
           const checksContent = parsedContent;
           const checks: Array<{ file: string; error: string; fix: string; status: string }> = [];
-          const checkLines = checksContent.split("\n").filter((line) => line.includes("File:") || line.includes("- Error:"));
+          const checkLines = checksContent.split("\n").filter((line: string) => line.includes("File:") || line.includes("- Error:"));
           let currentFile = "";
-          checkLines.forEach((line) => {
+          checkLines.forEach((line: string) => {
             if (line.includes("File:")) {
               currentFile = line.match(/File:\s*(.+?)(?:\s*-|$)/)?.[1]?.trim() || "";
             } else if (line.includes("- Error:")) {
@@ -228,8 +228,8 @@ function parseAIResponse(content: string) {
           // Reuse files parsing
           const filesContent = parsedContent;
           const filesList: { name: string; path: string; status: "success" | "error" | "loading" }[] = [];
-          const fileLines = filesContent.split("\n").filter((line) => line.trim());
-          fileLines.forEach((line) => {
+          const fileLines = filesContent.split("\n").filter((line: string) => line.trim() !== "");
+          fileLines.forEach((line: string) => {
             const successMatch = line.match(/(.+?)\s*[✓✔]/i);
             const errorMatch = line.match(/(.+?)\s*[✗✘X]/i);
             const loadingMatch = line.match(/(.+?)\s*[⏳⌛…]/i);
@@ -542,12 +542,6 @@ export function MessageList({
           >
             {message.role === "user" ? (
               <div className="flex items-start gap-2 w-full">
-                {/* <img
-                  src={user?.imageUrl || "/placeholder.svg"}
-                  alt={user?.firstName || "User"}
-                  className="w-8 h-8 rounded-full flex-shrink-0 mt-1"
-                  style={{ marginLeft: "-3px" }}
-                /> */}
                 <div className="flex-1 space-y-2">
                   {message.imageData?.map((img, idx) => (
                     <button
@@ -605,9 +599,6 @@ export function MessageList({
 
                         return (
                           <div className="space-y-2">
-                            {/* Context buttons shown above the message text */}
-
-
                             {hasContext && (
                               <div className="flex flex-wrap gap-1 mb-2">
                                 {contextParts.map((part, partIdx) => {
@@ -739,7 +730,6 @@ export function MessageList({
                               </div>
                             )}
 
-                            {/* Main text message */}
                             {mainText && (
                               <div
                                 className={cn(
