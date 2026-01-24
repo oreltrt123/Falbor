@@ -1,3 +1,4 @@
+
 import { SandpackProvider, SandpackPreview } from "@codesandbox/sandpack-react"
 import { db } from "@/config/db"
 import { deployments, files, projects, userCredits } from "@/config/schema"
@@ -85,9 +86,10 @@ export default async function DeployPage({
             </SandpackProvider>
 
             {!hasSubscription && (
-                <div className="absolute bottom-0 left-0 right-0 flex justify-center py-2 bg-white/80 text-center">
-                    <button className="bg-[#c15f3c] text-white px-4 py-1 rounded-md text-sm font-medium hover:bg-[#c1603cdc]">
-                        Made in Falbor
+                <div className="absolute h-12 bottom-0 right-2 flex justify-center py-2 bg-white/80 text-center">
+                    <button className="bg-black/90 text-white px-4 py-1 rounded-sm text-sm font-medium flex items-center">
+                        <span className="mt-[-3px] font-semibold">Made in</span>
+                        <img src="/logo.png" width={80} alt="" className="ml-[2px]" />
                     </button>
                 </div>
             )}

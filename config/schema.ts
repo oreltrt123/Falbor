@@ -381,6 +381,10 @@ export const templateLikes = pgTable("template_likes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
 
+/**
+ * Stores share links for projects with role-based permissions
+ * Each link can have a different role assigned (viewer, editor, admin)
+ */
 export const projectShares = pgTable("project_shares", {
   id: uuid("id").defaultRandom().primaryKey(),
   projectId: uuid("project_id")
@@ -388,19 +392,35 @@ export const projectShares = pgTable("project_shares", {
     .references(() => projects.id, { onDelete: "cascade" }),
   ownerId: text("owner_id").notNull(),
   shareToken: text("share_token").notNull().unique(),
+  role: text("role").$type<"viewer" | "editor" | "admin">().default("viewer").notNull(),
+  label: text("label"), // Optional label for the link (e.g., "Design Team", "Developers")
+  isActive: boolean("is_active").default(true).notNull(),
+  usageCount: integer("usage_count").default(0).notNull(),
+  maxUses: integer("max_uses"), // Optional limit on how many times the link can be used
   createdAt: timestamp("created_at").defaultNow().notNull(),
   expiresAt: timestamp("expires_at"),
 })
 
+/**
+ * Stores collaborators who have accepted a project invite
+ * Includes their role and status
+ */
 export const projectCollaborators = pgTable("project_collaborators", {
   id: uuid("id").defaultRandom().primaryKey(),
-  projectId: uuid("project_id").notNull(),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
   userId: text("user_id").notNull(),
   invitedBy: text("invited_by").notNull(),
-  role: text("role").default("viewer").notNull(),
-  status: text("status").default("pending").notNull(),
+  shareId: uuid("share_id").references(() => projectShares.id, { onDelete: "set null" }), // Link to the share that was used
+  role: text("role").$type<"viewer" | "editor" | "admin">().default("viewer").notNull(),
+  status: text("status").$type<"pending" | "accepted" | "revoked">().default("pending").notNull(),
+  displayName: text("display_name"), // Cached from Clerk for display
+  imageUrl: text("image_url"), // Cached from Clerk for display
   joinedAt: timestamp("joined_at"),
+  lastAccessedAt: timestamp("last_accessed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })
 
 export const projectLogs = pgTable("project_logs", {
@@ -503,8 +523,10 @@ export type BotDeployment = typeof bot_deployments.$inferSelect
 export type NewBotDeployment = typeof bot_deployments.$inferInsert
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
-
-// Database feature types
+export type ProjectTask = typeof projectTasks.$inferSelect
+export type NewProjectTask = typeof projectTasks.$inferInsert
+export type TaskAutomation = typeof taskAutomation.$inferSelect
+export type NewTaskAutomation = typeof taskAutomation.$inferInsert
 export type ProjectDatabase = typeof projectDatabases.$inferSelect
 export type NewProjectDatabase = typeof projectDatabases.$inferInsert
 export type ProjectUser = typeof projectUsers.$inferSelect
@@ -517,7 +539,6 @@ export type ProjectDatabaseLog = typeof projectDatabaseLogs.$inferSelect
 export type NewProjectDatabaseLog = typeof projectDatabaseLogs.$inferInsert
 export type ProjectQueryFile = typeof projectQueryFiles.$inferSelect
 export type NewProjectQueryFile = typeof projectQueryFiles.$inferInsert
-
 export type Template = typeof templates.$inferSelect
 export type NewTemplate = typeof templates.$inferInsert
 export type TemplateLike = typeof templateLikes.$inferSelect
@@ -526,4 +547,7 @@ export type ProjectShare = typeof projectShares.$inferSelect
 export type NewProjectShare = typeof projectShares.$inferInsert
 export type ProjectCollaborator = typeof projectCollaborators.$inferSelect
 export type NewProjectCollaborator = typeof projectCollaborators.$inferInsert
-export type ProjectLogs = typeof projectLogs.$inferInsert
+export type ProjectLog = typeof projectLogs.$inferSelect
+export type NewProjectLog = typeof projectLogs.$inferInsert
+export type FigmaToken = typeof figmaTokens.$inferSelect
+export type NewFigmaToken = typeof figmaTokens.$inferInsert

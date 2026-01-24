@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import DockDemo from "@/components/layout/Button"
 import DefaultDemo from "../Navbar"
 
@@ -13,7 +13,29 @@ export default function ClientDockWrapper() {
     setMounted(true)
   }, [])
 
-  const showDock = mounted && !pathname?.startsWith("/chat/") && !pathname?.startsWith("/deploy/")
+  const isDeploySubdomain = useMemo(() => {
+    if (!mounted) return false
+    if (typeof window === "undefined") return false
+
+    const hostname = window.location.hostname
+    const baseDomain = process.env.NEXT_PUBLIC_BASE_DOMAIN || "falbor.xyz"
+
+    // Examples:
+    // www.falbor.xyz -> false
+    // falbor.xyz -> false
+    // 69ca20f5-....falbor.xyz -> true
+    return (
+      hostname.endsWith(`.${baseDomain}`) &&
+      hostname !== baseDomain &&
+      !hostname.startsWith("www.")
+    )
+  }, [mounted])
+
+  const showDock =
+    mounted &&
+    !pathname?.startsWith("/chat/") &&
+    !pathname?.startsWith("/deploy/") &&
+    !isDeploySubdomain
 
   if (!showDock) return null
 

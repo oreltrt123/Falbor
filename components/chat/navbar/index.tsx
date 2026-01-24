@@ -1,30 +1,23 @@
-"use client" // <- Important! Must be at the top of the file
+"use client"
 
 import Link from "next/link"
 import { useUser, useClerk, useAuth } from "@clerk/nextjs"
 import { useState, useRef, useEffect } from "react"
 import {
-  Globe,
-  Code2,
-  Download,
-  Settings,
-  Database,
   Copy,
   ExternalLink,
   Check,
   Share2,
+  Globe,
+  Pencil,
+  List,
 } from "lucide-react"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
 import { formatDistanceToNow } from "date-fns"
+import { ShareDialog } from "@/components/chat/share-dialog"
+import { motion, AnimatePresence } from "framer-motion"
 
 interface CreditsData {
   credits: number
@@ -36,6 +29,7 @@ interface CreditsData {
 interface DeploymentData {
   deploymentUrl: string
   updatedAt: string
+  subdomain: string
 }
 
 interface NavbarProps {
@@ -43,15 +37,12 @@ interface NavbarProps {
   handleDownload: () => void
 }
 
-// 🔑 Toggle this when the database section is ready
-const DATABASE_ENABLED = false
-
 export function Navbar({ projectId, handleDownload }: NavbarProps) {
   const { user, isLoaded } = useUser()
   const clerk = useClerk()
   const { getToken } = useAuth()
 
-  // Single dropdown state
+  // Dropdown state
   type OpenDropdown = "profile" | "publish" | "share" | null
   const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null)
 
@@ -67,12 +58,13 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
   const [deployment, setDeployment] = useState<DeploymentData | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const [isPublic, setIsPublic] = useState(false)
-  const [shareUrl, setShareUrl] = useState("")
-  const [shareCopied, setShareCopied] = useState(false)
-  const [shareLoading, setShareLoading] = useState(false)
+  // Publish dialog internal state
+  const [publishView, setPublishView] = useState<"main" | "edit-domain">("main")
+  const [newSubdomain, setNewSubdomain] = useState("")
+  const [republishAfterUpdate, setRepublishAfterUpdate] = useState(true)
+  const [isSavingDomain, setIsSavingDomain] = useState(false)
 
-  // Close any dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -81,13 +73,14 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
         !shareRef.current?.contains(event.target as Node)
       ) {
         setOpenDropdown(null)
+        setPublishView("main") // reset view when closing
       }
     }
     document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  // Fetch credits + timer
+  // Fetch credits + timer (unchanged)
   useEffect(() => {
     if (!isLoaded || !user?.id) return
 
@@ -121,55 +114,41 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
     }
   }, [isLoaded, user?.id])
 
-  // Fetch deployment status
+  // Fetch deployment when publish dialog opens
   useEffect(() => {
     const fetchDeployment = async () => {
       try {
         const token = await getToken()
-        const response = await fetch(`/api/projects/${projectId}/deployment`, {
+        const res = await fetch(`/api/projects/${projectId}/deployment`, {
           headers: { Authorization: `Bearer ${token}` },
         })
 
-        if (response.ok) {
-          const data = await response.json()
-          if (data.deployment?.deploymentUrl && data.deployment?.updatedAt) {
+        if (res.ok) {
+          const data = await res.json()
+          if (data.deployment?.deploymentUrl && data.deployment?.updatedAt && data.deployment?.subdomain) {
             setDeployment({
               deploymentUrl: data.deployment.deploymentUrl,
               updatedAt: data.deployment.updatedAt,
+              subdomain: data.deployment.subdomain,
             })
+            setNewSubdomain(data.deployment.subdomain)
           }
         }
-      } catch (error) {
-        console.error("[Navbar] Error fetching deployment:", error)
-      }
-    }
-
-    fetchDeployment()
-  }, [projectId, getToken])
-
-  // Fetch project sharing settings
-  useEffect(() => {
-    const fetchProjectSettings = async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectId}`)
-        if (res.ok) {
-          const data = await res.json()
-          setIsPublic(data.isPublic || false)
-        }
       } catch (err) {
-        console.error("[Navbar] Failed to fetch project settings:", err)
+        console.error("Failed to fetch deployment:", err)
       }
     }
 
-    fetchProjectSettings()
-  }, [projectId])
+    if (openDropdown === "publish") {
+      fetchDeployment()
+    }
+  }, [openDropdown, projectId, getToken])
 
-  // Publish
   const handlePublish = async () => {
     setIsPublishing(true)
     try {
       const token = await getToken()
-      const response = await fetch(`/api/projects/${projectId}/deploy`, {
+      const res = await fetch(`/api/projects/${projectId}/deploy`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -177,19 +156,57 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
         },
       })
 
-      if (!response.ok) throw new Error("Deployment failed")
+      if (!res.ok) throw new Error("Deployment failed")
 
-      const data = await response.json()
+      const data = await res.json()
       setDeployment({
         deploymentUrl: data.deploymentUrl,
         updatedAt: new Date().toISOString(),
+        subdomain: data.subdomain || projectId.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
       })
-
       window.open(data.deploymentUrl, "_blank", "noopener,noreferrer")
     } catch (error) {
       alert(`Failed to deploy: ${error instanceof Error ? error.message : "Unknown error"}`)
     } finally {
       setIsPublishing(false)
+    }
+  }
+
+  const handleUpdateDomain = async () => {
+    if (!deployment || !newSubdomain.trim() || newSubdomain === deployment.subdomain) {
+      setPublishView("main")
+      return
+    }
+
+    setIsSavingDomain(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`/api/projects/${projectId}/deploy`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          subdomain: newSubdomain.trim(),
+          republish: republishAfterUpdate,
+        }),
+      })
+
+      if (!res.ok) throw new Error("Domain update failed")
+
+      const data = await res.json()
+      setDeployment({
+        deploymentUrl: data.deploymentUrl,
+        updatedAt: new Date().toISOString(),
+        subdomain: data.subdomain,
+      })
+      setPublishView("main")
+    } catch (err) {
+      alert("Failed to update domain")
+      console.error(err)
+    } finally {
+      setIsSavingDomain(false)
     }
   }
 
@@ -199,57 +216,6 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
-  }
-
-  // Sharing feature handlers
-  const generateShareUrl = async () => {
-    try {
-      const res = await fetch(`/api/projects/${projectId}/share`, { method: "POST" })
-      if (res.ok) {
-        const data = await res.json()
-        const url = `${window.location.origin}/share/${data.shareToken}`
-        setShareUrl(url)
-        return url
-      }
-    } catch (err) {
-      console.error("[Navbar] Failed to generate share URL:", err)
-    }
-    return ""
-  }
-
-  const handlePublicToggle = async (checked: boolean) => {
-    setShareLoading(true)
-    try {
-      const res = await fetch(`/api/projects/${projectId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isPublic: checked }),
-      })
-
-      if (res.ok) {
-        setIsPublic(checked)
-        if (checked) {
-          const url = await generateShareUrl()
-          if (url) setShareUrl(url)
-        }
-      }
-    } catch (err) {
-      console.error("[Navbar] Failed to update project privacy:", err)
-    } finally {
-      setShareLoading(false)
-    }
-  }
-
-  const handleCopyShareLink = async () => {
-    let url = shareUrl
-    if (!url) {
-      url = await generateShareUrl()
-      if (!url) return
-    }
-
-    await navigator.clipboard.writeText(url)
-    setShareCopied(true)
-    setTimeout(() => setShareCopied(false), 2000)
   }
 
   return (
@@ -277,7 +243,7 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                 Download
               </button>
 
-              {/* Share Button */}
+              {/* Share */}
               <div className="relative" ref={shareRef}>
                 <button
                   onClick={() => setOpenDropdown(openDropdown === "share" ? null : "share")}
@@ -290,67 +256,14 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                   Share
                 </button>
 
-                {openDropdown === "share" && (
-                  <div className="absolute top-full right-0 mt-[-10px] w-80 BackgroundStyleButton rounded-md z-50 p-4">
-                    <h3 className="font-semibold text-base mb-4">Share Project</h3>
-
-                    <div className="space-y-5">
-                      {/* Public toggle */}
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Make Public</p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            Allow others to view & request collaboration
-                          </p>
-                        </div>
-                        <Switch
-                          checked={isPublic}
-                          onCheckedChange={handlePublicToggle}
-                          disabled={shareLoading}
-                        />
-                      </div>
-
-                      {/* Share link section */}
-                      {isPublic && (
-                        <div className="pt-3 border-t">
-                          <p className="text-sm font-medium mb-2">Share Link</p>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={shareUrl || (shareLoading ? "Generating..." : "Click to generate")}
-                              readOnly
-                              className="flex-1 px-3 py-2 text-sm border rounded bg-gray-50 focus:outline-none"
-                            />
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={handleCopyShareLink}
-                              disabled={!shareUrl && !shareLoading}
-                            >
-                              {shareCopied ? (
-                                <Check className="h-4 w-4 text-green-600" />
-                              ) : (
-                                <Copy className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-2">
-                            Anyone with this link can see the project and request access
-                          </p>
-                        </div>
-                      )}
-
-                      {!isPublic && (
-                        <p className="text-xs text-gray-500 pt-3 border-t">
-                          Turn on public sharing to generate a collaboration link
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
+                <ShareDialog
+                  projectId={projectId}
+                  isOpen={openDropdown === "share"}
+                  onClose={() => setOpenDropdown(null)}
+                />
               </div>
 
-              {/* Publish Button */}
+              {/* Publish Button + Dialog */}
               <div className="relative" ref={publishDropdownRef}>
                 <button
                   onClick={() => setOpenDropdown(openDropdown === "publish" ? null : "publish")}
@@ -366,69 +279,162 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                 </button>
 
                 {openDropdown === "publish" && (
-                  <div className="absolute top-full right-0 mt-[-10px] w-80 BackgroundStyleButton rounded-md z-50 overflow-hidden">
-                    <div className="p-2">
-                      <h3 className="font-semibold text-sm text-gray-900 mb-3 px-1">Publish Your Site</h3>
-
-                      {/* Deployment URL */}
-                      <div className="mb-2">
-                        {deployment?.deploymentUrl ? (
-                          <div className="flex items-center gap-2 p-2.5 bg-gray-50 rounded border">
-                            <a
-                              href={deployment.deploymentUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm text-blue-600 hover:underline truncate flex-1"
-                            >
-                              {deployment.deploymentUrl}
-                            </a>
-                            <button
-                              onClick={handleCopyDeploymentUrl}
-                              className="p-1.5 hover:bg-gray-200 rounded"
-                              title="Copy URL"
-                            >
-                              {copied ? (
-                                <Check className="w-4 h-4 text-green-600" />
-                              ) : (
-                                <Copy className="w-4 h-4 text-gray-600" />
-                              )}
-                            </button>
-                            <a
-                              href={deployment.deploymentUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-1.5 hover:bg-gray-200 rounded"
-                              title="Open in new tab"
-                            >
-                              <ExternalLink className="w-4 h-4 text-gray-600" />
-                            </a>
-                          </div>
-                        ) : (
-                          <div className="p-3 bg-white rounded-md text-center text-sm text-gray-900">
-                            Not deployed yet
-                          </div>
-                        )}
-                      </div>
-
-                      <Button
-                        onClick={handlePublish}
-                        disabled={isPublishing}
-                        className="w-full"
-                        size="sm"
-                      >
-                        {isPublishing
-                          ? "Publishing..."
-                          : deployment
-                            ? "Update Deployment"
-                            : "Publish Now"}
-                      </Button>
-
-                      {deployment?.updatedAt && (
-                        <p className="text-xs text-gray-500 mt-4 text-center">
-                          Last updated {formatDistanceToNow(new Date(deployment.updatedAt), { addSuffix: true })}
-                        </p>
+                  <div className="absolute top-full right-0 mt-[-10px] w-96 bg-white border rounded-lg z-50">
+                    {/* Header - same style as ShareDialog */}
+                    <div className="flex items-center justify-between p-4 border-b">
+                      {publishView !== "main" && (
+                        <button
+                          onClick={() => setPublishView("main")}
+                          className="p-1 BackgroundStyle rounded mr-2"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                          </svg>
+                        </button>
                       )}
+                      <h3 className="font-semibold text-base flex-1">
+                        {publishView === "main" ? "Publish Your Site" : "Edit Domain"}
+                      </h3>
                     </div>
+
+                    <AnimatePresence mode="wait">
+                      {publishView === "main" && (
+                        <motion.div
+                          key="main"
+                          initial={{ opacity: 0, x: 20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -20 }}
+                          transition={{ duration: 0.2 }}
+                          className="p-4 space-y-4"
+                        >
+                          {deployment?.deploymentUrl ? (
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between p-1 rounded-sm">
+                                <div className="flex flex-col gap-1 flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <Globe className="w-4 h-4 text-gray-600 flex-shrink-0" />
+                                    <p className="text-sm font-medium truncate min-w-0">
+                                      {deployment.deploymentUrl}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1 min-w-0">
+                                    <List className="w-4 h-4 text-gray-600 flex-shrink-0" />
+                                    <p className="text-xs text-gray-500 truncate min-w-0">
+                                      Updated {formatDistanceToNow(new Date(deployment.updatedAt), { addSuffix: true })}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={handleCopyDeploymentUrl}
+                                    className="p-1.5 BackgroundStyle rounded cursor-pointer"
+                                    title="Copy link"
+                                  >
+                                    {copied ? (
+                                      <Check className="w-4 h-4 text-black" />
+                                    ) : (
+                                      <Copy className="w-4 h-4 text-black" />
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => setPublishView("edit-domain")}
+                                    className="p-1.5 BackgroundStyle rounded cursor-pointer"
+                                    title="Edit domain"
+                                  >
+                                    <Pencil className="w-4 h-4 text-black" />
+                                  </button>
+                                  <a
+                                    href={deployment.deploymentUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 BackgroundStyle rounded cursor-pointer"
+                                    title="Open in new tab"
+                                  >
+                                    <ExternalLink className="w-4 h-4 text-black" />
+                                  </a>
+                                </div>
+                              </div>
+
+                              <Button
+                                onClick={handlePublish}
+                                disabled={isPublishing}
+                                className="w-full"
+                              >
+                                {isPublishing ? "Publishing..." : "Update Deployment"}
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="p-6 text-center text-sm text-gray-500 border rounded-sm">
+                                Your site is not published yet
+                              </div>
+                              <Button
+                                onClick={handlePublish}
+                                disabled={isPublishing}
+                                className="w-full"
+                              >
+                                {isPublishing ? "Publishing..." : "Publish Now"}
+                              </Button>
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+
+                      {publishView === "edit-domain" && deployment && (
+                        <motion.div
+                          key="edit-domain"
+                          initial={{ opacity: 0, x: 20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -20 }}
+                          transition={{ duration: 0.2 }}
+                          className="p-4 space-y-4"
+                        >
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium">Current</p>
+                            <p className="text-sm text-gray-600 break-all">{deployment.deploymentUrl}</p>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">New subdomain</label>
+                            <Input
+                              value={newSubdomain}
+                              onChange={(e) =>
+                                setNewSubdomain(
+                                  e.target.value
+                                    .toLowerCase()
+                                    .replace(/[^a-z0-9-]/g, "")
+                                )
+                              }
+                              placeholder="your-site-name"
+                            />
+                            <p className="text-xs text-gray-500">
+                              Will be available at https://{newSubdomain || "your-site-name"}.falbor.xyz
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id="republish"
+                              checked={republishAfterUpdate}
+                              onChange={(e) => setRepublishAfterUpdate(e.target.checked)}
+                              className="h-4 w-4 rounded border-gray-300"
+                            />
+                            <label htmlFor="republish" className="text-sm text-gray-700">
+                              Republish site after updating
+                            </label>
+                          </div>
+
+                          <Button
+                            onClick={handleUpdateDomain}
+                            disabled={isSavingDomain || !newSubdomain.trim() || newSubdomain === deployment.subdomain}
+                            className="w-full"
+                          >
+                            {isSavingDomain ? "Saving..." : "Save & Update"}
+                          </Button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 )}
               </div>
@@ -439,13 +445,13 @@ export function Navbar({ projectId, handleDownload }: NavbarProps) {
                 className="w-8 h-8 rounded-full overflow-hidden focus:outline-none cursor-pointer"
               >
                 <img
-                  src={user.imageUrl}
+                  src={user.imageUrl || "/placeholder.svg"}
                   alt={user.firstName || "User"}
                   className="w-full h-full object-cover"
                 />
               </button>
 
-              {/* Profile Dropdown */}
+              {/* Profile Dropdown - unchanged */}
               {openDropdown === "profile" && (
                 <div
                   ref={dropdownRef}
